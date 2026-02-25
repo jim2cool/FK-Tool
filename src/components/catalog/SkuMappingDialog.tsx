@@ -172,12 +172,12 @@ export function SkuMappingDialog({
           {accountsForPlatform.length > 0 && (
             <div className="space-y-1">
               <Label className="text-xs">Account (optional)</Label>
-              <Select value={marketplaceAccountId} onValueChange={setMarketplaceAccountId}>
+              <Select value={marketplaceAccountId || 'any'} onValueChange={v => setMarketplaceAccountId(v === 'any' ? '' : v)}>
                 <SelectTrigger>
                   <SelectValue placeholder="Any account" />
                 </SelectTrigger>
                 <SelectContent>
-                  <SelectItem value="">Any account</SelectItem>
+                  <SelectItem value="any">Any account</SelectItem>
                   {accountsForPlatform.map(a => (
                     <SelectItem key={a.id} value={a.id}>{a.account_name}</SelectItem>
                   ))}

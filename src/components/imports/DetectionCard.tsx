@@ -89,10 +89,10 @@ export function DetectionCard({ importId, detection, preview, totalRows, marketp
       {accountsForPlatform.length > 0 && (
         <div className="space-y-1">
           <Label className="text-xs">Marketplace Account <span className="text-muted-foreground">(optional)</span></Label>
-          <Select value={accountId} onValueChange={setAccountId}>
+          <Select value={accountId || 'any'} onValueChange={v => setAccountId(v === 'any' ? '' : v)}>
             <SelectTrigger><SelectValue placeholder="Any account" /></SelectTrigger>
             <SelectContent>
-              <SelectItem value="">Any account</SelectItem>
+              <SelectItem value="any">Any account</SelectItem>
               {accountsForPlatform.map(a => <SelectItem key={a.id} value={a.id}>{a.account_name}</SelectItem>)}
             </SelectContent>
           </Select>

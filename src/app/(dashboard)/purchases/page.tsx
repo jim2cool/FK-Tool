@@ -222,12 +222,12 @@ export default function PurchasesPage() {
         </div>
         <div className="space-y-1">
           <Label className="text-xs text-muted-foreground">Warehouse</Label>
-          <Select value={filterWarehouse} onValueChange={setFilterWarehouse}>
+          <Select value={filterWarehouse || 'all'} onValueChange={v => setFilterWarehouse(v === 'all' ? '' : v)}>
             <SelectTrigger className="w-40">
               <SelectValue placeholder="All warehouses" />
             </SelectTrigger>
             <SelectContent>
-              <SelectItem value="">All warehouses</SelectItem>
+              <SelectItem value="all">All warehouses</SelectItem>
               {warehouses.map(w => (
                 <SelectItem key={w.id} value={w.id}>{w.name}</SelectItem>
               ))}

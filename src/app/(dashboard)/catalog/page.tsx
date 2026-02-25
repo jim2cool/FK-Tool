@@ -255,12 +255,15 @@ export default function CatalogPage() {
         {/* Warehouse filter */}
         <div className="space-y-1">
           <Label className="text-xs text-muted-foreground">Warehouse</Label>
-          <Select value={filterWarehouse} onValueChange={setFilterWarehouse}>
+          <Select
+            value={filterWarehouse || 'all'}
+            onValueChange={v => setFilterWarehouse(v === 'all' ? '' : v)}
+          >
             <SelectTrigger className="w-44">
               <SelectValue placeholder="All warehouses" />
             </SelectTrigger>
             <SelectContent>
-              <SelectItem value="">All warehouses</SelectItem>
+              <SelectItem value="all">All warehouses</SelectItem>
               {warehouses.map(w => (
                 <SelectItem key={w.id} value={w.id}>
                   {w.name}{w.location ? ` · ${w.location}` : ''}
@@ -273,12 +276,15 @@ export default function CatalogPage() {
         {/* Channel / Platform filter */}
         <div className="space-y-1">
           <Label className="text-xs text-muted-foreground">Channel</Label>
-          <Select value={filterPlatform} onValueChange={setFilterPlatform}>
+          <Select
+            value={filterPlatform || 'all'}
+            onValueChange={v => setFilterPlatform(v === 'all' ? '' : v)}
+          >
             <SelectTrigger className="w-36">
               <SelectValue placeholder="All channels" />
             </SelectTrigger>
             <SelectContent>
-              <SelectItem value="">All channels</SelectItem>
+              <SelectItem value="all">All channels</SelectItem>
               {PLATFORMS.map(p => (
                 <SelectItem key={p.value} value={p.value}>{p.label}</SelectItem>
               ))}
