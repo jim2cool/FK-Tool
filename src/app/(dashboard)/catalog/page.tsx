@@ -3,14 +3,15 @@ import { useEffect, useState, useCallback, useRef } from 'react'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
-import { Badge } from '@/components/ui/badge'
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
+import { Card, CardContent } from '@/components/ui/card'
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog'
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { Skeleton } from '@/components/ui/skeleton'
+import { Separator } from '@/components/ui/separator'
 import { SkuMappingDialog } from '@/components/catalog/SkuMappingDialog'
 import { toast } from 'sonner'
-import { Plus, Search, Edit2, Map, Upload } from 'lucide-react'
+import { Plus, Search, Edit2, Map, Upload, X } from 'lucide-react'
 import type { Platform } from '@/types'
 
 interface SkuMapping {
@@ -20,6 +21,15 @@ interface SkuMapping {
   marketplace_account_id: string | null
 }
 
+interface WarehouseSummary {
+  warehouse_id: string
+  warehouse_name: string
+  location: string | null
+  total_qty: number
+  total_cogs: number
+  avg_cogs: number
+}
+
 interface MasterSku {
   id: string
   name: string
@@ -27,6 +37,13 @@ interface MasterSku {
   is_archived: boolean
   created_at: string
   sku_mappings: SkuMapping[]
+  warehouse_summaries: WarehouseSummary[]
+}
+
+interface Warehouse {
+  id: string
+  name: string
+  location: string | null
 }
 
 interface MarketplaceAccount {
@@ -41,18 +58,27 @@ const platformColors: Record<Platform, string> = {
   d2c: 'bg-blue-100 text-blue-800 border-blue-200',
 }
 
-const platformLabels: Record<Platform, string> = {
-  flipkart: 'FK',
-  amazon: 'AMZ',
-  d2c: 'D2C',
+const PLATFORMS: { value: Platform; label: string }[] = [
+  { value: 'flipkart', label: 'Flipkart' },
+  { value: 'amazon', label: 'Amazon' },
+  { value: 'd2c', label: 'D2C' },
+]
+
+function fmt(n: number) {
+  return new Intl.NumberFormat('en-IN', { maximumFractionDigits: 2 }).format(n)
 }
 
 export default function CatalogPage() {
   const [skus, setSkus] = useState<MasterSku[]>([])
   const [accounts, setAccounts] = useState<MarketplaceAccount[]>([])
+  const [warehouses, setWarehouses] = useState<Warehouse[]>([])
   const [loading, setLoading] = useState(true)
+
+  // Filters
   const [search, setSearch] = useState('')
   const [searchDebounced, setSearchDebounced] = useState('')
+  const [filterWarehouse, setFilterWarehouse] = useState('')
+  const [filterPlatform, setFilterPlatform] = useState('')
 
   // Add SKU dialog
   const [addOpen, setAddOpen] = useState(false)
@@ -82,10 +108,11 @@ export default function CatalogPage() {
   const fetchSkus = useCallback(async () => {
     setLoading(true)
     try {
-      const url = searchDebounced
-        ? `/api/catalog/master-skus?search=${encodeURIComponent(searchDebounced)}`
-        : '/api/catalog/master-skus'
-      const res = await fetch(url)
+      const params = new URLSearchParams()
+      if (searchDebounced) params.set('search', searchDebounced)
+      if (filterWarehouse) params.set('warehouse_id', filterWarehouse)
+      if (filterPlatform) params.set('platform', filterPlatform)
+      const res = await fetch(`/api/catalog/master-skus?${params}`)
       if (!res.ok) throw new Error('Failed to fetch')
       setSkus(await res.json())
     } catch {
@@ -93,16 +120,21 @@ export default function CatalogPage() {
     } finally {
       setLoading(false)
     }
-  }, [searchDebounced])
+  }, [searchDebounced, filterWarehouse, filterPlatform])
 
   useEffect(() => { fetchSkus() }, [fetchSkus])
 
   useEffect(() => {
-    fetch('/api/marketplace-accounts')
-      .then(r => r.json())
-      .then(setAccounts)
-      .catch(() => {})
+    Promise.all([
+      fetch('/api/marketplace-accounts').then(r => r.json()),
+      fetch('/api/warehouses').then(r => r.json()),
+    ]).then(([a, w]) => {
+      setAccounts(a)
+      setWarehouses(w)
+    }).catch(() => {})
   }, [])
+
+  const hasFilters = !!filterWarehouse || !!filterPlatform
 
   async function handleAdd() {
     if (!addName.trim()) return toast.error('SKU name is required')
@@ -173,9 +205,6 @@ export default function CatalogPage() {
         toast.error(result.error ?? 'Import failed')
       } else {
         toast.success(`Import complete: ${result.processed} processed, ${result.failed} failed`)
-        if (result.errors?.length > 0) {
-          console.warn('Import errors:', result.errors)
-        }
         fetchSkus()
       }
     } finally {
@@ -186,26 +215,17 @@ export default function CatalogPage() {
 
   return (
     <div className="space-y-6">
+      {/* Header */}
       <div className="flex items-center justify-between">
         <div>
           <h2 className="text-2xl font-bold">Master Catalog</h2>
           <p className="text-sm text-muted-foreground mt-1">
-            Manage master SKUs and their marketplace mappings
+            Manage master SKUs, platform mappings, and warehouse stock
           </p>
         </div>
         <div className="flex items-center gap-2">
-          <input
-            ref={csvInputRef}
-            type="file"
-            accept=".csv"
-            className="hidden"
-            onChange={handleCsvImport}
-          />
-          <Button
-            variant="outline"
-            onClick={() => csvInputRef.current?.click()}
-            disabled={csvUploading}
-          >
+          <input ref={csvInputRef} type="file" accept=".csv" className="hidden" onChange={handleCsvImport} />
+          <Button variant="outline" onClick={() => csvInputRef.current?.click()} disabled={csvUploading}>
             <Upload className="h-4 w-4 mr-2" />
             {csvUploading ? 'Importing…' : 'Bulk Import CSV'}
           </Button>
@@ -216,15 +236,66 @@ export default function CatalogPage() {
         </div>
       </div>
 
-      {/* Search */}
-      <div className="relative max-w-sm">
-        <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
-        <Input
-          className="pl-9"
-          placeholder="Search SKUs…"
-          value={search}
-          onChange={e => setSearch(e.target.value)}
-        />
+      {/* Filter bar */}
+      <div className="flex flex-wrap items-end gap-3">
+        {/* SKU search */}
+        <div className="space-y-1">
+          <Label className="text-xs text-muted-foreground">Search SKU</Label>
+          <div className="relative">
+            <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+            <Input
+              className="pl-9 w-52"
+              placeholder="Search SKUs…"
+              value={search}
+              onChange={e => setSearch(e.target.value)}
+            />
+          </div>
+        </div>
+
+        {/* Warehouse filter */}
+        <div className="space-y-1">
+          <Label className="text-xs text-muted-foreground">Warehouse</Label>
+          <Select value={filterWarehouse} onValueChange={setFilterWarehouse}>
+            <SelectTrigger className="w-44">
+              <SelectValue placeholder="All warehouses" />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="">All warehouses</SelectItem>
+              {warehouses.map(w => (
+                <SelectItem key={w.id} value={w.id}>
+                  {w.name}{w.location ? ` · ${w.location}` : ''}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        </div>
+
+        {/* Channel / Platform filter */}
+        <div className="space-y-1">
+          <Label className="text-xs text-muted-foreground">Channel</Label>
+          <Select value={filterPlatform} onValueChange={setFilterPlatform}>
+            <SelectTrigger className="w-36">
+              <SelectValue placeholder="All channels" />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="">All channels</SelectItem>
+              {PLATFORMS.map(p => (
+                <SelectItem key={p.value} value={p.value}>{p.label}</SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        </div>
+
+        {hasFilters && (
+          <Button
+            variant="ghost"
+            size="sm"
+            onClick={() => { setFilterWarehouse(''); setFilterPlatform('') }}
+          >
+            <X className="h-3.5 w-3.5 mr-1" />
+            Clear filters
+          </Button>
+        )}
       </div>
 
       {/* Table */}
@@ -238,6 +309,7 @@ export default function CatalogPage() {
                 <TableHead>Flipkart SKUs</TableHead>
                 <TableHead>Amazon SKUs</TableHead>
                 <TableHead>D2C SKUs</TableHead>
+                <TableHead>Warehouse Stock & COGS</TableHead>
                 <TableHead className="text-right">Actions</TableHead>
               </TableRow>
             </TableHeader>
@@ -245,22 +317,24 @@ export default function CatalogPage() {
               {loading ? (
                 Array.from({ length: 5 }).map((_, i) => (
                   <TableRow key={i}>
-                    {Array.from({ length: 6 }).map((_, j) => (
+                    {Array.from({ length: 7 }).map((_, j) => (
                       <TableCell key={j}><Skeleton className="h-4 w-full" /></TableCell>
                     ))}
                   </TableRow>
                 ))
               ) : skus.length === 0 ? (
                 <TableRow>
-                  <TableCell colSpan={6} className="text-center py-12 text-muted-foreground">
-                    {search ? 'No SKUs match your search.' : 'No master SKUs yet. Add your first SKU above.'}
+                  <TableCell colSpan={7} className="text-center py-12 text-muted-foreground">
+                    {search || hasFilters
+                      ? 'No SKUs match your filters.'
+                      : 'No master SKUs yet. Add your first SKU above.'}
                   </TableCell>
                 </TableRow>
               ) : (
                 skus.map(sku => (
                   <TableRow key={sku.id}>
                     <TableCell className="font-medium">{sku.name}</TableCell>
-                    <TableCell className="text-muted-foreground text-sm max-w-[200px] truncate">
+                    <TableCell className="text-muted-foreground text-sm max-w-[160px] truncate">
                       {sku.description ?? '—'}
                     </TableCell>
                     <TableCell>
@@ -271,6 +345,9 @@ export default function CatalogPage() {
                     </TableCell>
                     <TableCell>
                       <PlatformSkuCell skus={getPlatformSkus(sku, 'd2c')} platform="d2c" />
+                    </TableCell>
+                    <TableCell>
+                      <WarehouseStockCell summaries={sku.warehouse_summaries} />
                     </TableCell>
                     <TableCell className="text-right">
                       <div className="flex items-center justify-end gap-1">
@@ -294,9 +371,7 @@ export default function CatalogPage() {
       {/* Add SKU Dialog */}
       <Dialog open={addOpen} onOpenChange={setAddOpen}>
         <DialogContent>
-          <DialogHeader>
-            <DialogTitle>Add Master SKU</DialogTitle>
-          </DialogHeader>
+          <DialogHeader><DialogTitle>Add Master SKU</DialogTitle></DialogHeader>
           <div className="space-y-4 py-2">
             <div className="space-y-1">
               <Label>SKU Name <span className="text-destructive">*</span></Label>
@@ -309,11 +384,7 @@ export default function CatalogPage() {
             </div>
             <div className="space-y-1">
               <Label>Description <span className="text-muted-foreground text-xs">(optional)</span></Label>
-              <Input
-                placeholder="Short description"
-                value={addDesc}
-                onChange={e => setAddDesc(e.target.value)}
-              />
+              <Input placeholder="Short description" value={addDesc} onChange={e => setAddDesc(e.target.value)} />
             </div>
           </div>
           <DialogFooter>
@@ -328,24 +399,15 @@ export default function CatalogPage() {
       {/* Edit SKU Dialog */}
       <Dialog open={!!editSku} onOpenChange={open => !open && setEditSku(null)}>
         <DialogContent>
-          <DialogHeader>
-            <DialogTitle>Edit Master SKU</DialogTitle>
-          </DialogHeader>
+          <DialogHeader><DialogTitle>Edit Master SKU</DialogTitle></DialogHeader>
           <div className="space-y-4 py-2">
             <div className="space-y-1">
               <Label>SKU Name <span className="text-destructive">*</span></Label>
-              <Input
-                value={editName}
-                onChange={e => setEditName(e.target.value)}
-                onKeyDown={e => e.key === 'Enter' && handleEdit()}
-              />
+              <Input value={editName} onChange={e => setEditName(e.target.value)} onKeyDown={e => e.key === 'Enter' && handleEdit()} />
             </div>
             <div className="space-y-1">
               <Label>Description <span className="text-muted-foreground text-xs">(optional)</span></Label>
-              <Input
-                value={editDesc}
-                onChange={e => setEditDesc(e.target.value)}
-              />
+              <Input value={editDesc} onChange={e => setEditDesc(e.target.value)} />
             </div>
           </div>
           <DialogFooter>
@@ -379,15 +441,34 @@ function PlatformSkuCell({ skus, platform }: { skus: string[]; platform: Platfor
     amazon: 'bg-orange-100 text-orange-800 border-orange-200',
     d2c: 'bg-blue-100 text-blue-800 border-blue-200',
   }
-  if (skus.length === 0) {
-    return <span className="text-xs text-muted-foreground italic">Not mapped</span>
-  }
+  if (skus.length === 0) return <span className="text-xs text-muted-foreground italic">Not mapped</span>
   return (
     <div className="flex flex-wrap gap-1">
       {skus.map(s => (
-        <span key={s} className={`text-xs px-1.5 py-0.5 rounded border font-mono ${colors[platform]}`}>
-          {s}
-        </span>
+        <span key={s} className={`text-xs px-1.5 py-0.5 rounded border font-mono ${colors[platform]}`}>{s}</span>
+      ))}
+    </div>
+  )
+}
+
+function WarehouseStockCell({ summaries }: { summaries: WarehouseSummary[] }) {
+  if (summaries.length === 0) {
+    return <span className="text-xs text-muted-foreground italic">No stock data</span>
+  }
+  return (
+    <div className="space-y-1">
+      {summaries.map(s => (
+        <div key={s.warehouse_id} className="flex items-center gap-2 text-xs">
+          <span className="font-medium text-foreground truncate max-w-[100px]" title={s.warehouse_name}>
+            {s.warehouse_name}
+          </span>
+          {s.location && (
+            <span className="text-muted-foreground">· {s.location}</span>
+          )}
+          <span className="ml-auto tabular-nums text-muted-foreground whitespace-nowrap">
+            {s.total_qty} units · ₹{fmt(s.avg_cogs)}/u
+          </span>
+        </div>
       ))}
     </div>
   )
