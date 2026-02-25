@@ -59,14 +59,18 @@ export async function importSkuMappingCsv(
     let skuId: string
 
     if (existing) {
-      // Update description if provided
+      // Fix 2: capture and surface description update errors
       if (description !== null) {
-        await supabase
+        const { error: updateError } = await supabase
           .from('master_skus')
           .update({ description })
           .eq('id', existing.id)
+        if (updateError) {
+          errors.push({ row: rowNum, sku: masterSkuName, message: `Description update failed: ${updateError.message}` })
+        }
       }
       skuId = existing.id
+      // Fix 1: always count existing SKU as "updated" (it was processed, SKU already existed)
       updated++
     } else {
       // Insert new SKU
@@ -97,11 +101,28 @@ export async function importSkuMappingCsv(
       const platformSku = row[col]?.trim()
       if (!platformSku) continue
 
+      // Fix 4: check for conflict — platform SKU already mapped to a different master SKU
+      const { data: existingMapping } = await supabase
+        .from('sku_mappings')
+        .select('master_sku_id')
+        .eq('tenant_id', tenantId)
+        .eq('platform', platform)
+        .eq('platform_sku', platformSku)
+        .single()
+
+      if (existingMapping && existingMapping.master_sku_id !== skuId) {
+        failed++
+        errors.push({ row: rowNum, sku: masterSkuName, message: `${platform} SKU "${platformSku}" is already mapped to a different master SKU` })
+        continue
+      }
+
       const { error } = await supabase.from('sku_mappings').upsert(
         { tenant_id: tenantId, master_sku_id: skuId, platform, platform_sku: platformSku },
         { onConflict: 'tenant_id,platform,platform_sku' }
       )
+      // Fix 3: increment failed when platform mapping upsert errors
       if (error) {
+        failed++
         errors.push({ row: rowNum, sku: masterSkuName, message: `${platform} mapping: ${error.message}` })
       }
     }
