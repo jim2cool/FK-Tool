@@ -1,5 +1,5 @@
 'use client'
-import { useEffect, useState, useCallback } from 'react'
+import { useEffect, useState, useCallback, useRef } from 'react'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
@@ -10,7 +10,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '
 import { Skeleton } from '@/components/ui/skeleton'
 import { SkuMappingDialog } from '@/components/catalog/SkuMappingDialog'
 import { toast } from 'sonner'
-import { Plus, Search, Edit2, Map } from 'lucide-react'
+import { Plus, Search, Edit2, Map, Upload } from 'lucide-react'
 import type { Platform } from '@/types'
 
 interface SkuMapping {
@@ -68,6 +68,10 @@ export default function CatalogPage() {
 
   // Mapping dialog
   const [mappingSku, setMappingSku] = useState<MasterSku | null>(null)
+
+  // Bulk CSV import
+  const csvInputRef = useRef<HTMLInputElement>(null)
+  const [csvUploading, setCsvUploading] = useState(false)
 
   // Debounce search
   useEffect(() => {
@@ -156,6 +160,30 @@ export default function CatalogPage() {
   const getPlatformSkus = (sku: MasterSku, platform: Platform): string[] =>
     sku.sku_mappings.filter(m => m.platform === platform).map(m => m.platform_sku)
 
+  async function handleCsvImport(e: React.ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0]
+    if (!file) return
+    setCsvUploading(true)
+    try {
+      const formData = new FormData()
+      formData.append('file', file)
+      const res = await fetch('/api/catalog/import-csv', { method: 'POST', body: formData })
+      const result = await res.json()
+      if (!res.ok) {
+        toast.error(result.error ?? 'Import failed')
+      } else {
+        toast.success(`Import complete: ${result.processed} processed, ${result.failed} failed`)
+        if (result.errors?.length > 0) {
+          console.warn('Import errors:', result.errors)
+        }
+        fetchSkus()
+      }
+    } finally {
+      setCsvUploading(false)
+      if (csvInputRef.current) csvInputRef.current.value = ''
+    }
+  }
+
   return (
     <div className="space-y-6">
       <div className="flex items-center justify-between">
@@ -165,10 +193,27 @@ export default function CatalogPage() {
             Manage master SKUs and their marketplace mappings
           </p>
         </div>
-        <Button onClick={() => setAddOpen(true)}>
-          <Plus className="h-4 w-4 mr-2" />
-          Add Master SKU
-        </Button>
+        <div className="flex items-center gap-2">
+          <input
+            ref={csvInputRef}
+            type="file"
+            accept=".csv"
+            className="hidden"
+            onChange={handleCsvImport}
+          />
+          <Button
+            variant="outline"
+            onClick={() => csvInputRef.current?.click()}
+            disabled={csvUploading}
+          >
+            <Upload className="h-4 w-4 mr-2" />
+            {csvUploading ? 'Importing…' : 'Bulk Import CSV'}
+          </Button>
+          <Button onClick={() => setAddOpen(true)}>
+            <Plus className="h-4 w-4 mr-2" />
+            Add Master SKU
+          </Button>
+        </div>
       </div>
 
       {/* Search */}
