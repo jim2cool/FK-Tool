@@ -31,14 +31,29 @@ interface WarehouseSummary {
   avg_cogs: number
 }
 
-interface MasterSku {
+interface Variant {
   id: string
   name: string
   description: string | null
+  parent_id: string
+  variant_attributes: Record<string, string> | null
   is_archived: boolean
   created_at: string
   sku_mappings: SkuMapping[]
   warehouse_summaries: WarehouseSummary[]
+}
+
+interface MasterSku {
+  id: string
+  name: string
+  description: string | null
+  parent_id: string | null
+  variant_attributes: Record<string, string> | null
+  is_archived: boolean
+  created_at: string
+  sku_mappings: SkuMapping[]
+  warehouse_summaries: WarehouseSummary[]
+  variants: Variant[]
 }
 
 interface Warehouse {

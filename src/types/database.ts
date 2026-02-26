@@ -38,6 +38,9 @@ export interface MasterSku {
   tenant_id: string
   name: string
   description: string | null
+  parent_id: string | null
+  variant_attributes: Record<string, string> | null
+  is_archived: boolean
   created_at: string
 }
 
