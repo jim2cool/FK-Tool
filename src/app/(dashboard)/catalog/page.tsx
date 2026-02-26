@@ -1,5 +1,5 @@
 'use client'
-import { useEffect, useState, useCallback } from 'react'
+import { useEffect, useState, useCallback, Fragment } from 'react'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
@@ -351,9 +351,9 @@ export default function CatalogPage() {
                   const isExpanded = expandedParents.has(sku.id)
 
                   return (
-                    <>
+                    <Fragment key={sku.id}>
                       {/* Parent / flat SKU row */}
-                      <TableRow key={sku.id} className={isParent ? 'bg-muted/20' : undefined}>
+                      <TableRow className={isParent ? 'bg-muted/20' : undefined}>
                         <TableCell className="font-medium">
                           <div className="flex items-center gap-1.5">
                             {isParent && (
@@ -457,7 +457,7 @@ export default function CatalogPage() {
                           </TableCell>
                         </TableRow>
                       ))}
-                    </>
+                    </Fragment>
                   )
                 })
               )}
