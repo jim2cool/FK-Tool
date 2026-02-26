@@ -11,39 +11,44 @@ export async function GET(request: Request) {
     const warehouseId = searchParams.get('warehouse_id')
     const platform = searchParams.get('platform')
 
-    // Base SKU query
-    let query = supabase.from('master_skus').select(`
-      *, sku_mappings(id, platform, platform_sku, marketplace_account_id)
-    `).eq('tenant_id', tenantId).eq('is_archived', false).order('name')
+    // Fetch ALL non-archived SKUs (parents, variants, flat) in one query
+    let query = supabase
+      .from('master_skus')
+      .select(`*, sku_mappings(id, platform, platform_sku, marketplace_account_id)`)
+      .eq('tenant_id', tenantId)
+      .eq('is_archived', false)
+      .order('name')
+
+    // Search only on top-level names (parent or flat SKU)
     if (search) query = query.ilike('name', `%${search}%`)
-    // Platform filter: only return SKUs that have a mapping for the given platform
+
+    const { data: allSkus, error } = await query
+    if (error) throw error
+
+    // Platform filter: find which SKU IDs have a mapping for this platform
+    let platformFilterIds: string[] | null = null
     if (platform) {
       const { data: mapped } = await supabase
         .from('sku_mappings')
         .select('master_sku_id')
         .eq('tenant_id', tenantId)
         .eq('platform', platform)
-      const ids = (mapped ?? []).map(m => m.master_sku_id)
-      if (ids.length === 0) return NextResponse.json([])
-      query = query.in('id', ids)
+      platformFilterIds = (mapped ?? []).map(m => m.master_sku_id)
     }
 
-    const { data: skus, error } = await query
-    if (error) throw error
-
-    // Pull purchase summaries: group by master_sku_id + warehouse_id
+    // Build purchase summaries
     let purchaseQuery = supabase
       .from('purchases')
       .select('master_sku_id, warehouse_id, quantity, total_cogs, warehouses(id, name, location)')
       .eq('tenant_id', tenantId)
     if (warehouseId) purchaseQuery = purchaseQuery.eq('warehouse_id', warehouseId)
-
     const { data: purchases } = await purchaseQuery
 
-    // Aggregate: { [skuId]: { [warehouseId]: { name, location, totalQty, totalCogs, avgCogs } } }
-    type WhSummary = { warehouse_id: string; warehouse_name: string; location: string | null; total_qty: number; total_cogs: number; avg_cogs: number }
+    type WhSummary = {
+      warehouse_id: string; warehouse_name: string; location: string | null
+      total_qty: number; total_cogs: number; avg_cogs: number
+    }
     const summaryMap: Record<string, WhSummary[]> = {}
-
     for (const p of purchases ?? []) {
       const wh = p.warehouses as unknown as { id: string; name: string; location: string | null } | null
       if (!wh) continue
@@ -55,28 +60,66 @@ export async function GET(request: Request) {
         existing.avg_cogs = existing.total_cogs / existing.total_qty
       } else {
         summaryMap[p.master_sku_id].push({
-          warehouse_id: wh.id,
-          warehouse_name: wh.name,
-          location: wh.location,
-          total_qty: p.quantity,
-          total_cogs: Number(p.total_cogs),
+          warehouse_id: wh.id, warehouse_name: wh.name, location: wh.location,
+          total_qty: p.quantity, total_cogs: Number(p.total_cogs),
           avg_cogs: Number(p.total_cogs) / p.quantity,
         })
       }
     }
 
-    // Filter SKUs: if warehouse filter active, only return SKUs that have purchases in that warehouse
-    let result = skus ?? []
-    if (warehouseId) {
-      result = result.filter(s => summaryMap[s.id]?.some(w => w.warehouse_id === warehouseId))
+    // Separate variants from top-level rows
+    const topLevel = (allSkus ?? []).filter(s => s.parent_id === null)
+    const variantRows = (allSkus ?? []).filter(s => s.parent_id !== null)
+
+    // Aggregate warehouse summaries for a parent from its variants
+    function aggregateSummaries(ids: string[]): WhSummary[] {
+      const agg: Record<string, WhSummary> = {}
+      for (const id of ids) {
+        for (const s of summaryMap[id] ?? []) {
+          if (!agg[s.warehouse_id]) {
+            agg[s.warehouse_id] = { ...s }
+          } else {
+            agg[s.warehouse_id].total_qty += s.total_qty
+            agg[s.warehouse_id].total_cogs += s.total_cogs
+            agg[s.warehouse_id].avg_cogs =
+              agg[s.warehouse_id].total_cogs / agg[s.warehouse_id].total_qty
+          }
+        }
+      }
+      return Object.values(agg)
     }
 
-    const enriched = result.map(s => ({
-      ...s,
-      warehouse_summaries: summaryMap[s.id] ?? [],
-    }))
+    // Build enriched result
+    let result = topLevel.map(sku => {
+      const variants = variantRows
+        .filter(v => v.parent_id === sku.id)
+        .map(v => ({ ...v, warehouse_summaries: summaryMap[v.id] ?? [] }))
 
-    return NextResponse.json(enriched)
+      const warehouseSummaries = variants.length > 0
+        ? aggregateSummaries(variants.map(v => v.id))
+        : (summaryMap[sku.id] ?? [])
+
+      return { ...sku, variants, warehouse_summaries: warehouseSummaries }
+    })
+
+    // Apply platform filter: flat SKUs or parents with matching variant
+    if (platformFilterIds !== null) {
+      const ids = platformFilterIds
+      result = result.filter(s =>
+        s.variants.length === 0
+          ? ids.includes(s.id)
+          : s.variants.some((v: { id: string }) => ids.includes(v.id))
+      )
+    }
+
+    // Apply warehouse filter: only keep SKUs with stock in that warehouse
+    if (warehouseId) {
+      result = result.filter(s =>
+        s.warehouse_summaries.some((w: WhSummary) => w.warehouse_id === warehouseId)
+      )
+    }
+
+    return NextResponse.json(result)
   } catch (e: unknown) {
     return NextResponse.json({ error: (e as Error).message }, { status: 500 })
   }
