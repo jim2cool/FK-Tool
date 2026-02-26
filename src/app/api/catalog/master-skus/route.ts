@@ -129,9 +129,29 @@ export async function POST(request: Request) {
   try {
     const tenantId = await getTenantId()
     const supabase = await createClient()
-    const { name, description } = await request.json()
-    const { data, error } = await supabase.from('master_skus')
-      .insert({ tenant_id: tenantId, name, description }).select().single()
+    const { name, description, parent_id, variant_attributes } = await request.json()
+
+    // If parent_id provided, validate it exists and is itself a top-level row
+    if (parent_id) {
+      const { data: parent, error: parentErr } = await supabase
+        .from('master_skus')
+        .select('id, parent_id')
+        .eq('id', parent_id)
+        .eq('tenant_id', tenantId)
+        .single()
+      if (parentErr || !parent) {
+        return NextResponse.json({ error: 'Parent SKU not found' }, { status: 400 })
+      }
+      if (parent.parent_id !== null) {
+        return NextResponse.json({ error: 'Cannot create a variant of a variant' }, { status: 400 })
+      }
+    }
+
+    const { data, error } = await supabase
+      .from('master_skus')
+      .insert({ tenant_id: tenantId, name, description, parent_id: parent_id ?? null, variant_attributes: variant_attributes ?? null })
+      .select()
+      .single()
     if (error) throw error
     return NextResponse.json(data)
   } catch (e: unknown) {
@@ -143,9 +163,11 @@ export async function PATCH(request: Request) {
   try {
     const tenantId = await getTenantId()
     const supabase = await createClient()
-    const { id, name, description } = await request.json()
+    const { id, name, description, variant_attributes } = await request.json()
+    const update: Record<string, unknown> = { name, description }
+    if (variant_attributes !== undefined) update.variant_attributes = variant_attributes
     const { data, error } = await supabase.from('master_skus')
-      .update({ name, description }).eq('id', id).eq('tenant_id', tenantId).select().single()
+      .update(update).eq('id', id).eq('tenant_id', tenantId).select().single()
     if (error) throw error
     return NextResponse.json(data)
   } catch (e: unknown) {
