@@ -1,5 +1,5 @@
 'use client'
-import { useEffect, useState, useCallback, useRef } from 'react'
+import { useEffect, useState, useCallback } from 'react'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
@@ -10,6 +10,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { Skeleton } from '@/components/ui/skeleton'
 import { Separator } from '@/components/ui/separator'
 import { SkuMappingDialog } from '@/components/catalog/SkuMappingDialog'
+import { CsvImportDialog } from '@/components/catalog/CsvImportDialog'
 import { toast } from 'sonner'
 import { Plus, Search, Edit2, Map, Upload, X } from 'lucide-react'
 import type { Platform } from '@/types'
@@ -64,9 +65,6 @@ const PLATFORMS: { value: Platform; label: string }[] = [
   { value: 'd2c', label: 'D2C' },
 ]
 
-function fmt(n: number) {
-  return new Intl.NumberFormat('en-IN', { maximumFractionDigits: 2 }).format(n)
-}
 
 export default function CatalogPage() {
   const [skus, setSkus] = useState<MasterSku[]>([])
@@ -95,9 +93,8 @@ export default function CatalogPage() {
   // Mapping dialog
   const [mappingSku, setMappingSku] = useState<MasterSku | null>(null)
 
-  // Bulk CSV import
-  const csvInputRef = useRef<HTMLInputElement>(null)
-  const [csvUploading, setCsvUploading] = useState(false)
+  // CSV Import dialog
+  const [csvImportOpen, setCsvImportOpen] = useState(false)
 
   // Debounce search
   useEffect(() => {
@@ -192,27 +189,6 @@ export default function CatalogPage() {
   const getPlatformSkus = (sku: MasterSku, platform: Platform): string[] =>
     sku.sku_mappings.filter(m => m.platform === platform).map(m => m.platform_sku)
 
-  async function handleCsvImport(e: React.ChangeEvent<HTMLInputElement>) {
-    const file = e.target.files?.[0]
-    if (!file) return
-    setCsvUploading(true)
-    try {
-      const formData = new FormData()
-      formData.append('file', file)
-      const res = await fetch('/api/catalog/import-csv', { method: 'POST', body: formData })
-      const result = await res.json()
-      if (!res.ok) {
-        toast.error(result.error ?? 'Import failed')
-      } else {
-        toast.success(`Import complete: ${result.processed} processed, ${result.failed} failed`)
-        fetchSkus()
-      }
-    } finally {
-      setCsvUploading(false)
-      if (csvInputRef.current) csvInputRef.current.value = ''
-    }
-  }
-
   return (
     <div className="space-y-6">
       {/* Header */}
@@ -224,10 +200,9 @@ export default function CatalogPage() {
           </p>
         </div>
         <div className="flex items-center gap-2">
-          <input ref={csvInputRef} type="file" accept=".csv" className="hidden" onChange={handleCsvImport} />
-          <Button variant="outline" onClick={() => csvInputRef.current?.click()} disabled={csvUploading}>
+          <Button variant="outline" onClick={() => setCsvImportOpen(true)}>
             <Upload className="h-4 w-4 mr-2" />
-            {csvUploading ? 'Importing…' : 'Bulk Import CSV'}
+            Bulk Import CSV
           </Button>
           <Button onClick={() => setAddOpen(true)}>
             <Plus className="h-4 w-4 mr-2" />
@@ -312,10 +287,11 @@ export default function CatalogPage() {
               <TableRow>
                 <TableHead>Master SKU Name</TableHead>
                 <TableHead>Description</TableHead>
-                <TableHead>Flipkart SKUs</TableHead>
-                <TableHead>Amazon SKUs</TableHead>
-                <TableHead>D2C SKUs</TableHead>
-                <TableHead>Warehouse Stock & COGS</TableHead>
+                <TableHead>Flipkart</TableHead>
+                <TableHead>Amazon</TableHead>
+                <TableHead>D2C</TableHead>
+                <TableHead>Warehouse</TableHead>
+                <TableHead>Qty</TableHead>
                 <TableHead className="text-right">Actions</TableHead>
               </TableRow>
             </TableHeader>
@@ -323,14 +299,14 @@ export default function CatalogPage() {
               {loading ? (
                 Array.from({ length: 5 }).map((_, i) => (
                   <TableRow key={i}>
-                    {Array.from({ length: 7 }).map((_, j) => (
+                    {Array.from({ length: 8 }).map((_, j) => (
                       <TableCell key={j}><Skeleton className="h-4 w-full" /></TableCell>
                     ))}
                   </TableRow>
                 ))
               ) : skus.length === 0 ? (
                 <TableRow>
-                  <TableCell colSpan={7} className="text-center py-12 text-muted-foreground">
+                  <TableCell colSpan={8} className="text-center py-12 text-muted-foreground">
                     {search || hasFilters
                       ? 'No SKUs match your filters.'
                       : 'No master SKUs yet. Add your first SKU above.'}
@@ -353,7 +329,10 @@ export default function CatalogPage() {
                       <PlatformSkuCell skus={getPlatformSkus(sku, 'd2c')} platform="d2c" />
                     </TableCell>
                     <TableCell>
-                      <WarehouseStockCell summaries={sku.warehouse_summaries} />
+                      <WarehouseNameCell summaries={sku.warehouse_summaries} />
+                    </TableCell>
+                    <TableCell>
+                      <WarehouseQtyCell summaries={sku.warehouse_summaries} />
                     </TableCell>
                     <TableCell className="text-right">
                       <div className="flex items-center justify-end gap-1">
@@ -437,6 +416,13 @@ export default function CatalogPage() {
           onSaved={fetchSkus}
         />
       )}
+
+      {/* CSV Import Dialog */}
+      <CsvImportDialog
+        open={csvImportOpen}
+        onOpenChange={setCsvImportOpen}
+        onImported={fetchSkus}
+      />
     </div>
   )
 }
@@ -447,7 +433,7 @@ function PlatformSkuCell({ skus, platform }: { skus: string[]; platform: Platfor
     amazon: 'bg-orange-100 text-orange-800 border-orange-200',
     d2c: 'bg-blue-100 text-blue-800 border-blue-200',
   }
-  if (skus.length === 0) return <span className="text-xs text-muted-foreground italic">Not mapped</span>
+  if (skus.length === 0) return <span className="text-muted-foreground">—</span>
   return (
     <div className="flex flex-wrap gap-1">
       {skus.map(s => (
@@ -457,23 +443,26 @@ function PlatformSkuCell({ skus, platform }: { skus: string[]; platform: Platfor
   )
 }
 
-function WarehouseStockCell({ summaries }: { summaries: WarehouseSummary[] }) {
-  if (summaries.length === 0) {
-    return <span className="text-xs text-muted-foreground italic">No stock data</span>
-  }
+function WarehouseNameCell({ summaries }: { summaries: WarehouseSummary[] }) {
+  if (summaries.length === 0) return <span className="text-muted-foreground">—</span>
   return (
     <div className="space-y-1">
       {summaries.map(s => (
-        <div key={s.warehouse_id} className="flex items-center gap-2 text-xs">
-          <span className="font-medium text-foreground truncate max-w-[100px]" title={s.warehouse_name}>
-            {s.warehouse_name}
-          </span>
-          {s.location && (
-            <span className="text-muted-foreground">· {s.location}</span>
-          )}
-          <span className="ml-auto tabular-nums text-muted-foreground whitespace-nowrap">
-            {s.total_qty} units · ₹{fmt(s.avg_cogs)}/u
-          </span>
+        <div key={s.warehouse_id} className="text-xs leading-5">
+          <span className="font-medium" title={s.location ?? undefined}>{s.warehouse_name}</span>
+        </div>
+      ))}
+    </div>
+  )
+}
+
+function WarehouseQtyCell({ summaries }: { summaries: WarehouseSummary[] }) {
+  if (summaries.length === 0) return <span className="text-muted-foreground">—</span>
+  return (
+    <div className="space-y-1">
+      {summaries.map(s => (
+        <div key={s.warehouse_id} className="text-xs leading-5 tabular-nums">
+          {s.total_qty}
         </div>
       ))}
     </div>
