@@ -68,7 +68,7 @@ function autoDetect(headers: string[]): CsvColumnMapping {
 
   for (const field of Object.keys(SYNONYMS) as Array<keyof CsvColumnMapping>) {
     const synonyms = SYNONYMS[field]
-    const match = headers.find(h => synonyms.includes(normalise(h)))
+    const match = headers.find(h => h.trim() !== '' && synonyms.includes(normalise(h)))
     if (match) {
       ;(mapping as unknown as Record<string, string | null>)[field] = match
     }
@@ -115,20 +115,13 @@ export function CsvImportDialog({ open, onOpenChange, onImported }: Props) {
     const reader = new FileReader()
     reader.onload = (ev) => {
       const rawText = ev.target?.result as string
-      const { data, meta } = Papa.parse<Record<string, string>>(rawText, {
+      const { data: allData, meta } = Papa.parse<Record<string, string>>(rawText, {
         header: true,
         skipEmptyLines: true,
-        preview: 5,  // only need first 5 for preview
       })
       const headers = meta.fields ?? []
 
-      // Re-parse to get total row count
-      const { data: allData } = Papa.parse<Record<string, string>>(rawText, {
-        header: true,
-        skipEmptyLines: true,
-      })
-
-      setParsed({ headers, rows: data, totalRows: allData.length, rawText })
+      setParsed({ headers, rows: allData.slice(0, 5), totalRows: allData.length, rawText })
       setMapping(autoDetect(headers))
       setStep('mapping')
     }
@@ -146,7 +139,7 @@ export function CsvImportDialog({ open, onOpenChange, onImported }: Props) {
 
   function getSelectValue(key: keyof CsvColumnMapping): string {
     const v = mapping[key]
-    return v ?? SKIP
+    return (v === null || v === '') ? SKIP : v
   }
 
   const canImport = !!mapping.master_sku_name
@@ -240,12 +233,10 @@ export function CsvImportDialog({ open, onOpenChange, onImported }: Props) {
                         <SelectValue />
                       </SelectTrigger>
                       <SelectContent>
-                        {!field.required && (
-                          <SelectItem value={SKIP}>
-                            <span className="text-muted-foreground italic">— skip this field —</span>
-                          </SelectItem>
-                        )}
-                        {parsed.headers.map(h => (
+                        <SelectItem value={SKIP}>
+                          <span className="text-muted-foreground italic">— skip this field —</span>
+                        </SelectItem>
+                        {parsed.headers.filter(h => h.trim() !== '').map(h => (
                           <SelectItem key={h} value={h}>{h}</SelectItem>
                         ))}
                       </SelectContent>
