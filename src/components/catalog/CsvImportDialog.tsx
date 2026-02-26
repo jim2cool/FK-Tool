@@ -2,18 +2,21 @@
 import { useRef, useState } from 'react'
 import Papa from 'papaparse'
 import { Button } from '@/components/ui/button'
+import { Input } from '@/components/ui/input'
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'
 import { Badge } from '@/components/ui/badge'
 import { Separator } from '@/components/ui/separator'
 import { toast } from 'sonner'
-import { Upload, CheckCircle2, AlertCircle, ChevronDown, ChevronRight } from 'lucide-react'
+import { Upload, CheckCircle2, AlertCircle, ChevronDown, ChevronRight, Plus, X } from 'lucide-react'
 import type { CsvColumnMapping } from '@/lib/importers/sku-mapping-importer'
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
 type Step = 'idle' | 'mapping' | 'importing' | 'results'
+
+type StringMappingKey = Exclude<keyof CsvColumnMapping, 'variant_attr_cols'>
 
 interface ParsedCsv {
   headers: string[]
@@ -30,13 +33,14 @@ interface ImportResults {
 }
 
 interface MappingField {
-  key: keyof CsvColumnMapping
+  key: StringMappingKey
   label: string
   required: boolean
 }
 
 const MAPPING_FIELDS: MappingField[] = [
   { key: 'master_sku_name', label: 'Master SKU Name', required: true },
+  { key: 'parent_sku_name', label: 'Parent Product',  required: false },
   { key: 'flipkart_sku',    label: 'Flipkart SKU',    required: false },
   { key: 'amazon_sku',      label: 'Amazon SKU',      required: false },
   { key: 'd2c_sku',         label: 'D2C SKU',         required: false },
@@ -45,8 +49,9 @@ const MAPPING_FIELDS: MappingField[] = [
 
 // ─── Fuzzy auto-detection ─────────────────────────────────────────────────────
 
-const SYNONYMS: Record<keyof CsvColumnMapping, string[]> = {
+const SYNONYMS: Record<StringMappingKey, string[]> = {
   master_sku_name: ['mastersku', 'masterskuname', 'skuname', 'productname', 'itemname', 'title', 'name', 'sku', 'product', 'skuid'],
+  parent_sku_name: ['parent', 'parentsku', 'parentproduct', 'productgroup', 'group', 'parentname', 'basename'],
   flipkart_sku:    ['flipkart', 'fksku', 'fklisting', 'fkid', 'flipkartsku', 'flipkartlisting', 'fklistingid'],
   amazon_sku:      ['amazon', 'amazonsku', 'asin', 'amz', 'amzsku', 'amazonasin', 'amazonlisting'],
   d2c_sku:         ['d2c', 'd2csku', 'websitesku', 'directsku', 'ownsite', 'shopifysku', 'websiteid'],
@@ -64,9 +69,11 @@ function autoDetect(headers: string[]): CsvColumnMapping {
     amazon_sku: null,
     d2c_sku: null,
     description: null,
+    parent_sku_name: null,
+    variant_attr_cols: [],
   }
 
-  for (const field of Object.keys(SYNONYMS) as Array<keyof CsvColumnMapping>) {
+  for (const field of Object.keys(SYNONYMS) as Array<StringMappingKey>) {
     const synonyms = SYNONYMS[field]
     const match = headers.find(h => h.trim() !== '' && synonyms.includes(normalise(h)))
     if (match) {
@@ -91,7 +98,8 @@ export function CsvImportDialog({ open, onOpenChange, onImported }: Props) {
   const fileInputRef = useRef<HTMLInputElement>(null)
   const [step, setStep] = useState<Step>('idle')
   const [parsed, setParsed] = useState<ParsedCsv | null>(null)
-  const [mapping, setMapping] = useState<CsvColumnMapping>({ master_sku_name: '', flipkart_sku: null, amazon_sku: null, d2c_sku: null, description: null })
+  const [mapping, setMapping] = useState<CsvColumnMapping>({ master_sku_name: '', flipkart_sku: null, amazon_sku: null, d2c_sku: null, description: null, parent_sku_name: null, variant_attr_cols: [] })
+  const [variantAttrCols, setVariantAttrCols] = useState<Array<{ csv_col: string; attr_key: string }>>([])
   const [results, setResults] = useState<ImportResults | null>(null)
   const [showErrors, setShowErrors] = useState(false)
 
@@ -101,6 +109,7 @@ export function CsvImportDialog({ open, onOpenChange, onImported }: Props) {
     setParsed(null)
     setResults(null)
     setShowErrors(false)
+    setVariantAttrCols([])
     onOpenChange(false)
   }
 
@@ -130,16 +139,16 @@ export function CsvImportDialog({ open, onOpenChange, onImported }: Props) {
     e.target.value = ''
   }
 
-  function setField(key: keyof CsvColumnMapping, value: string) {
+  function setField(key: StringMappingKey, value: string) {
     setMapping(prev => ({
       ...prev,
       [key]: value === SKIP ? null : value,
     }))
   }
 
-  function getSelectValue(key: keyof CsvColumnMapping): string {
+  function getSelectValue(key: StringMappingKey): string {
     const v = mapping[key]
-    return (v === null || v === '') ? SKIP : v
+    return (v === null || v === '') ? SKIP : (v as string)
   }
 
   const canImport = !!mapping.master_sku_name
@@ -152,7 +161,7 @@ export function CsvImportDialog({ open, onOpenChange, onImported }: Props) {
       const res = await fetch('/api/catalog/import-csv', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ csv: parsed.rawText, mapping }),
+        body: JSON.stringify({ csv: parsed.rawText, mapping: { ...mapping, variant_attr_cols: variantAttrCols } }),
       })
       const data = await res.json()
       if (!res.ok) {
@@ -250,6 +259,61 @@ export function CsvImportDialog({ open, onOpenChange, onImported }: Props) {
             })}
           </TableBody>
         </Table>
+
+        {/* Variant attribute columns — shown only when Parent Product is mapped */}
+        {mapping.parent_sku_name && (
+          <>
+            <Separator />
+            <div className="space-y-2">
+              <p className="text-xs font-medium text-muted-foreground uppercase tracking-wide">
+                Variant Attributes <span className="text-muted-foreground font-normal normal-case">(optional — maps CSV columns to attribute keys)</span>
+              </p>
+              {variantAttrCols.map((attrRow, i) => (
+                <div key={i} className="flex items-center gap-2">
+                  <Select
+                    value={attrRow.csv_col || SKIP}
+                    onValueChange={v => setVariantAttrCols(prev =>
+                      prev.map((r, idx) => idx === i ? { ...r, csv_col: v === SKIP ? '' : v } : r)
+                    )}
+                  >
+                    <SelectTrigger className="w-44 h-8 text-sm">
+                      <SelectValue placeholder="CSV column" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value={SKIP}><span className="text-muted-foreground italic">— pick column —</span></SelectItem>
+                      {parsed.headers.filter(h => h.trim() !== '').map(h => (
+                        <SelectItem key={h} value={h}>{h}</SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                  <span className="text-muted-foreground text-sm">→</span>
+                  <Input
+                    className="w-32 h-8 text-sm"
+                    placeholder="Attribute key"
+                    value={attrRow.attr_key}
+                    onChange={e => setVariantAttrCols(prev =>
+                      prev.map((r, idx) => idx === i ? { ...r, attr_key: e.target.value } : r)
+                    )}
+                  />
+                  <Button
+                    variant="ghost" size="sm"
+                    onClick={() => setVariantAttrCols(prev => prev.filter((_, idx) => idx !== i))}
+                  >
+                    <X className="h-3.5 w-3.5" />
+                  </Button>
+                </div>
+              ))}
+              {variantAttrCols.length < 3 && (
+                <Button
+                  variant="ghost" size="sm" className="text-xs"
+                  onClick={() => setVariantAttrCols(prev => [...prev, { csv_col: '', attr_key: '' }])}
+                >
+                  <Plus className="h-3 w-3 mr-1" /> Add attribute column
+                </Button>
+              )}
+            </div>
+          </>
+        )}
 
         {/* Row preview */}
         {parsed.rows.length > 0 && (
