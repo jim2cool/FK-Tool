@@ -7,6 +7,7 @@ import { Label } from '@/components/ui/label'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { Badge } from '@/components/ui/badge'
 import { Separator } from '@/components/ui/separator'
+import { AlertTriangle, ChevronRight } from 'lucide-react'
 import { toast } from 'sonner'
 import type { Platform } from '@/types'
 
@@ -58,9 +59,17 @@ export function SkuMappingDialog({
   const [deletingId, setDeletingId] = useState<string | null>(null)
 
   const accountsForPlatform = marketplaceAccounts.filter(a => a.platform === platform)
+  const accountRequired = accountsForPlatform.length > 0
+  const canAdd = !!platformSku.trim() && (!accountRequired || !!marketplaceAccountId)
+
+  function handlePlatformChange(p: Platform) {
+    setPlatform(p)
+    setMarketplaceAccountId('')
+  }
 
   async function handleAdd() {
     if (!platformSku.trim()) return toast.error('Platform SKU is required')
+    if (accountRequired && !marketplaceAccountId) return toast.error('Account is required')
     setSaving(true)
     try {
       const res = await fetch('/api/catalog/sku-mappings', {
@@ -111,85 +120,138 @@ export function SkuMappingDialog({
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="max-w-lg">
         <DialogHeader>
-          <DialogTitle>SKU Mappings — {masterSkuName}</DialogTitle>
+          <DialogTitle>Channel Mappings — {masterSkuName}</DialogTitle>
         </DialogHeader>
 
         {/* Existing mappings */}
-        <div className="space-y-2 max-h-48 overflow-y-auto">
+        <div className="space-y-2 max-h-52 overflow-y-auto">
           {existingMappings.length === 0 ? (
             <p className="text-sm text-muted-foreground">No mappings yet.</p>
           ) : (
-            existingMappings.map(m => (
-              <div key={m.id} className="flex items-center justify-between bg-muted/40 rounded-md px-3 py-2">
-                <div className="flex items-center gap-2">
-                  <span className={`text-xs px-2 py-0.5 rounded-full border font-medium ${platformColors[m.platform]}`}>
-                    {platformLabels[m.platform]}
-                  </span>
-                  <span className="text-sm font-mono">{m.platform_sku}</span>
+            existingMappings.map(m => {
+              const accountName = m.marketplace_account_id
+                ? marketplaceAccounts.find(a => a.id === m.marketplace_account_id)?.account_name
+                : null
+              return (
+                <div key={m.id} className="flex items-center justify-between bg-muted/40 rounded-md px-3 py-2">
+                  {/* Hierarchy: Channel › Account › SKU */}
+                  <div className="flex items-center gap-1.5 min-w-0">
+                    <span className={`text-xs px-2 py-0.5 rounded-full border font-medium shrink-0 ${platformColors[m.platform]}`}>
+                      {platformLabels[m.platform]}
+                    </span>
+                    {accountName && (
+                      <>
+                        <ChevronRight className="h-3 w-3 text-muted-foreground shrink-0" />
+                        <span className="text-xs text-muted-foreground shrink-0">{accountName}</span>
+                      </>
+                    )}
+                    <ChevronRight className="h-3 w-3 text-muted-foreground shrink-0" />
+                    <span className="text-sm font-mono truncate">{m.platform_sku}</span>
+                  </div>
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    className="h-7 px-2 text-destructive hover:text-destructive shrink-0 ml-2"
+                    onClick={() => handleDelete(m.id)}
+                    disabled={deletingId === m.id}
+                  >
+                    {deletingId === m.id ? '…' : 'Remove'}
+                  </Button>
                 </div>
-                <Button
-                  variant="ghost"
-                  size="sm"
-                  className="h-7 px-2 text-destructive hover:text-destructive"
-                  onClick={() => handleDelete(m.id)}
-                  disabled={deletingId === m.id}
-                >
-                  {deletingId === m.id ? '…' : 'Remove'}
-                </Button>
-              </div>
-            ))
+              )
+            })
           )}
         </div>
 
         <Separator />
 
-        {/* Add new mapping */}
+        {/* Add new mapping — Channel → Account → SKU ID */}
         <div className="space-y-3">
           <p className="text-sm font-medium">Add new mapping</p>
-          <div className="grid grid-cols-2 gap-3">
-            <div className="space-y-1">
-              <Label className="text-xs">Platform</Label>
-              <Select value={platform} onValueChange={v => { setPlatform(v as Platform); setMarketplaceAccountId('') }}>
-                <SelectTrigger>
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  {PLATFORMS.map(p => (
-                    <SelectItem key={p} value={p}>{platformLabels[p]}</SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </div>
-            <div className="space-y-1">
-              <Label className="text-xs">Platform SKU</Label>
-              <Input
-                placeholder="e.g. FK_SKU_001"
-                value={platformSku}
-                onChange={e => setPlatformSku(e.target.value)}
-              />
-            </div>
+
+          {/* Step 1: Channel */}
+          <div className="space-y-1">
+            <Label className="text-xs text-muted-foreground">Channel</Label>
+            <Select value={platform} onValueChange={v => handlePlatformChange(v as Platform)}>
+              <SelectTrigger>
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                {PLATFORMS.map(p => (
+                  <SelectItem key={p} value={p}>{platformLabels[p]}</SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
           </div>
-          {accountsForPlatform.length > 0 && (
+
+          {/* Step 2: Account (required when accounts exist) */}
+          {accountsForPlatform.length > 0 ? (
             <div className="space-y-1">
-              <Label className="text-xs">Account (optional)</Label>
-              <Select value={marketplaceAccountId || 'any'} onValueChange={v => setMarketplaceAccountId(v === 'any' ? '' : v)}>
+              <Label className="text-xs text-muted-foreground">
+                Account <span className="text-destructive">*</span>
+              </Label>
+              <Select
+                value={marketplaceAccountId || ''}
+                onValueChange={setMarketplaceAccountId}
+              >
                 <SelectTrigger>
-                  <SelectValue placeholder="Any account" />
+                  <SelectValue placeholder="Select account…" />
                 </SelectTrigger>
                 <SelectContent>
-                  <SelectItem value="any">Any account</SelectItem>
                   {accountsForPlatform.map(a => (
                     <SelectItem key={a.id} value={a.id}>{a.account_name}</SelectItem>
                   ))}
                 </SelectContent>
               </Select>
             </div>
+          ) : (
+            <div className="flex items-start gap-2 rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-700">
+              <AlertTriangle className="h-3.5 w-3.5 mt-0.5 shrink-0" />
+              <span>
+                No {platformLabels[platform]} accounts configured.
+                Add one in <strong>Settings → Marketplace Accounts</strong> first.
+              </span>
+            </div>
+          )}
+
+          {/* Step 3: SKU ID */}
+          <div className="space-y-1">
+            <Label className="text-xs text-muted-foreground">
+              SKU ID <span className="text-destructive">*</span>
+            </Label>
+            <Input
+              placeholder="e.g. FK_SKU_001"
+              value={platformSku}
+              onChange={e => setPlatformSku(e.target.value)}
+              onKeyDown={e => e.key === 'Enter' && canAdd && handleAdd()}
+            />
+          </div>
+
+          {/* Visual hierarchy hint */}
+          {(marketplaceAccountId || platformSku) && (
+            <div className="flex items-center gap-1.5 text-xs text-muted-foreground bg-muted/30 rounded px-3 py-1.5">
+              <Badge variant="outline" className={`text-xs border ${platformColors[platform]}`}>
+                {platformLabels[platform]}
+              </Badge>
+              {marketplaceAccountId && (
+                <>
+                  <ChevronRight className="h-3 w-3" />
+                  <span>{accountsForPlatform.find(a => a.id === marketplaceAccountId)?.account_name}</span>
+                </>
+              )}
+              {platformSku.trim() && (
+                <>
+                  <ChevronRight className="h-3 w-3" />
+                  <span className="font-mono">{platformSku.trim()}</span>
+                </>
+              )}
+            </div>
           )}
         </div>
 
         <DialogFooter>
           <Button variant="outline" onClick={() => onOpenChange(false)}>Close</Button>
-          <Button onClick={handleAdd} disabled={saving || !platformSku.trim()}>
+          <Button onClick={handleAdd} disabled={saving || !canAdd}>
             {saving ? 'Adding…' : 'Add Mapping'}
           </Button>
         </DialogFooter>

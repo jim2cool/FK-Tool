@@ -12,8 +12,7 @@ import { Skeleton } from '@/components/ui/skeleton'
 import { SkuMappingDialog } from '@/components/catalog/SkuMappingDialog'
 import { CsvImportDialog } from '@/components/catalog/CsvImportDialog'
 import { toast } from 'sonner'
-import { Plus, Search, Upload, X, AlertTriangle, Pencil, Check } from 'lucide-react'
-import { cn } from '@/lib/utils'
+import { Plus, Search, Upload, X, AlertTriangle, Pencil, ChevronRight } from 'lucide-react'
 import type { Platform } from '@/types'
 
 interface SkuMapping {
@@ -69,10 +68,11 @@ interface MarketplaceAccount {
   account_name: string
 }
 
-type EditingCell = { skuId: string; field: 'name' | 'description'; value: string }
 type DisplayRow =
   | { sku: MasterSku; variant: Variant; isVariant: true }
   | { sku: MasterSku; variant: null; isVariant: false }
+
+type EditRow = { id: string; name: string }
 
 const PLATFORM_SHORT: Record<string, string> = {
   flipkart: 'FK',
@@ -97,16 +97,17 @@ export default function CatalogPage() {
   const [searchDebounced, setSearchDebounced] = useState('')
   const [filterWarehouse, setFilterWarehouse] = useState('')
   const [filterPlatform, setFilterPlatform] = useState('')
+  const [filterAccount, setFilterAccount] = useState('')
   const [showUnmappedOnly, setShowUnmappedOnly] = useState(false)
 
   // Add SKU dialog
   const [addOpen, setAddOpen] = useState(false)
   const [addName, setAddName] = useState('')
-  const [addDesc, setAddDesc] = useState('')
+  const [addWarehouseId, setAddWarehouseId] = useState('')
   const [addLoading, setAddLoading] = useState(false)
 
-  // Inline editing
-  const [editingCell, setEditingCell] = useState<EditingCell | null>(null)
+  // Per-row edit dialog
+  const [editRow, setEditRow] = useState<EditRow | null>(null)
   const [editSaving, setEditSaving] = useState(false)
 
   // Mapping dialog
@@ -128,6 +129,7 @@ export default function CatalogPage() {
       if (searchDebounced) params.set('search', searchDebounced)
       if (filterWarehouse) params.set('warehouse_id', filterWarehouse)
       if (filterPlatform) params.set('platform', filterPlatform)
+      if (filterAccount) params.set('account_id', filterAccount)
       const res = await fetch(`/api/catalog/master-skus?${params}`)
       if (!res.ok) throw new Error('Failed to fetch')
       setSkus(await res.json())
@@ -136,7 +138,7 @@ export default function CatalogPage() {
     } finally {
       setLoading(false)
     }
-  }, [searchDebounced, filterWarehouse, filterPlatform])
+  }, [searchDebounced, filterWarehouse, filterPlatform, filterAccount])
 
   useEffect(() => { fetchSkus() }, [fetchSkus])
 
@@ -158,7 +160,7 @@ export default function CatalogPage() {
     return sku.sku_mappings.length === 0 ? n + 1 : n
   }, 0)
 
-  const hasFilters = !!filterWarehouse || !!filterPlatform
+  const hasFilters = !!filterWarehouse || !!filterPlatform || !!filterAccount
 
   async function handleAdd() {
     if (!addName.trim()) return toast.error('SKU name is required')
@@ -167,16 +169,34 @@ export default function CatalogPage() {
       const res = await fetch('/api/catalog/master-skus', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ name: addName.trim(), description: addDesc.trim() || null }),
+        body: JSON.stringify({ name: addName.trim() }),
       })
       if (!res.ok) {
         const { error } = await res.json()
         toast.error(error ?? 'Failed to create SKU')
         return
       }
+      const newSku = await res.json()
+
+      // If a warehouse was selected, create an initial stock entry (qty=1, cost=0)
+      // so the SKU appears in the warehouse immediately.
+      if (addWarehouseId && newSku?.id) {
+        await fetch('/api/purchases', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            master_sku_id: newSku.id,
+            warehouse_id: addWarehouseId,
+            quantity: 1,
+            unit_cost: 0,
+            purchase_date: new Date().toISOString().split('T')[0],
+          }),
+        })
+      }
+
       toast.success('Master SKU created')
       setAddName('')
-      setAddDesc('')
+      setAddWarehouseId('')
       setAddOpen(false)
       fetchSkus()
     } finally {
@@ -184,20 +204,14 @@ export default function CatalogPage() {
     }
   }
 
-  async function handleInlineSave() {
-    if (!editingCell) return
-    if (!editingCell.value.trim() && editingCell.field === 'name') {
-      return toast.error('SKU name cannot be empty')
-    }
+  async function handleEditSave() {
+    if (!editRow || !editRow.name.trim()) return toast.error('Name cannot be empty')
     setEditSaving(true)
     try {
       const res = await fetch('/api/catalog/master-skus', {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          id: editingCell.skuId,
-          [editingCell.field]: editingCell.value.trim() || null,
-        }),
+        body: JSON.stringify({ id: editRow.id, name: editRow.name.trim() }),
       })
       if (!res.ok) {
         const { error } = await res.json()
@@ -205,65 +219,10 @@ export default function CatalogPage() {
         return
       }
       await fetchSkus()
-      setEditingCell(null)
+      setEditRow(null)
     } finally {
       setEditSaving(false)
     }
-  }
-
-  // Inline editable cell — renders as text+pencil or input+save/cancel
-  function renderEditableCell(
-    skuId: string,
-    field: 'name' | 'description',
-    value: string | null,
-    opts?: { bold?: boolean; small?: boolean }
-  ) {
-    const isEditing = editingCell?.skuId === skuId && editingCell?.field === field
-    if (isEditing) {
-      return (
-        <div className="flex items-center gap-1">
-          <Input
-            autoFocus
-            value={editingCell.value}
-            onChange={e => setEditingCell(c => c ? { ...c, value: e.target.value } : null)}
-            onKeyDown={e => {
-              if (e.key === 'Escape') setEditingCell(null)
-              if (e.key === 'Enter') handleInlineSave()
-            }}
-            className="h-7 text-sm py-0 min-w-0"
-          />
-          <Button
-            size="icon" variant="ghost" className="h-6 w-6 shrink-0"
-            onClick={handleInlineSave} disabled={editSaving}
-          >
-            <Check className="h-3 w-3" />
-          </Button>
-          <Button
-            size="icon" variant="ghost" className="h-6 w-6 shrink-0"
-            onClick={() => setEditingCell(null)}
-          >
-            <X className="h-3 w-3" />
-          </Button>
-        </div>
-      )
-    }
-    return (
-      <div className="group/cell flex items-center gap-1 min-w-0">
-        <span className={cn(
-          'truncate',
-          opts?.bold ? 'font-medium text-sm' : 'text-sm text-muted-foreground',
-          opts?.small && 'text-xs'
-        )}>
-          {value ?? '—'}
-        </span>
-        <button
-          className="opacity-0 group-hover/cell:opacity-40 hover:!opacity-100 transition-opacity shrink-0"
-          onClick={() => setEditingCell({ skuId, field, value: value ?? '' })}
-        >
-          <Pencil className="h-3 w-3" />
-        </button>
-      </div>
-    )
   }
 
   // Build display rows: flat SKUs as-is, parents as one row per variant
@@ -371,12 +330,36 @@ export default function CatalogPage() {
           </Select>
         </div>
 
+        <div className="space-y-1">
+          <Label className="text-xs text-muted-foreground">Account</Label>
+          <Select
+            value={filterAccount || 'all'}
+            onValueChange={v => setFilterAccount(v === 'all' ? '' : v)}
+          >
+            <SelectTrigger className="w-44">
+              <SelectValue placeholder="All accounts" />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="all">All accounts</SelectItem>
+              {accounts.map(a => (
+                <SelectItem key={a.id} value={a.id}>
+                  {a.account_name}
+                  <span className="text-muted-foreground ml-1 text-xs">
+                    ({PLATFORM_SHORT[a.platform] ?? a.platform})
+                  </span>
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        </div>
+
         {(hasFilters || showUnmappedOnly) && (
           <Button
             variant="ghost" size="sm"
             onClick={() => {
               setFilterWarehouse('')
               setFilterPlatform('')
+              setFilterAccount('')
               setShowUnmappedOnly(false)
             }}
           >
@@ -392,25 +375,26 @@ export default function CatalogPage() {
           <Table>
             <TableHeader>
               <TableRow>
-                <TableHead className="w-[260px]">Master Product</TableHead>
-                <TableHead>Channels</TableHead>
+                <TableHead className="w-[240px]">Master Product</TableHead>
+                <TableHead className="w-24">Channels</TableHead>
+                <TableHead>Account</TableHead>
                 <TableHead>SKU IDs</TableHead>
                 <TableHead>Warehouse</TableHead>
-                <TableHead>Description</TableHead>
+                <TableHead className="w-10" />
               </TableRow>
             </TableHeader>
             <TableBody>
               {loading ? (
                 Array.from({ length: 5 }).map((_, i) => (
                   <TableRow key={i}>
-                    {Array.from({ length: 5 }).map((_, j) => (
+                    {Array.from({ length: 6 }).map((_, j) => (
                       <TableCell key={j}><Skeleton className="h-4 w-full" /></TableCell>
                     ))}
                   </TableRow>
                 ))
               ) : displayRows.length === 0 ? (
                 <TableRow>
-                  <TableCell colSpan={5} className="text-center py-12 text-muted-foreground">
+                  <TableCell colSpan={6} className="text-center py-12 text-muted-foreground">
                     {showUnmappedOnly
                       ? 'No unmapped SKUs — all SKUs have platform mappings.'
                       : search || hasFilters
@@ -424,7 +408,7 @@ export default function CatalogPage() {
                   const mappings = isVariant ? variant.sku_mappings : sku.sku_mappings
                   const warehouseSummaries = isVariant ? variant.warehouse_summaries : sku.warehouse_summaries
                   const rowId = isVariant ? variant.id : sku.id
-                  const rowDesc = isVariant ? variant.description : sku.description
+                  const rowName = isVariant ? variant.name : sku.name
 
                   return (
                     <TableRow key={rowId} className="group">
@@ -433,12 +417,10 @@ export default function CatalogPage() {
                         {isVariant ? (
                           <div>
                             <div className="font-medium text-sm">{sku.name}</div>
-                            <div className="flex items-center gap-1 mt-0.5">
-                              {renderEditableCell(variant.id, 'name', variant.name, { small: true })}
-                            </div>
+                            <div className="text-xs text-muted-foreground mt-0.5">{variant.name}</div>
                           </div>
                         ) : (
-                          renderEditableCell(sku.id, 'name', sku.name, { bold: true })
+                          <span className="font-medium text-sm">{sku.name}</span>
                         )}
                       </TableCell>
 
@@ -450,9 +432,14 @@ export default function CatalogPage() {
                         <ChannelBadges mappings={mappings} />
                       </TableCell>
 
+                      {/* Account column */}
+                      <TableCell>
+                        <AccountNames mappings={mappings} accounts={accounts} />
+                      </TableCell>
+
                       {/* SKU IDs column */}
                       <TableCell>
-                        <SkuIds mappings={mappings} />
+                        <SkuIds mappings={mappings} accounts={accounts} />
                       </TableCell>
 
                       {/* Warehouse column */}
@@ -460,9 +447,16 @@ export default function CatalogPage() {
                         <WarehouseNames summaries={warehouseSummaries} />
                       </TableCell>
 
-                      {/* Description column */}
+                      {/* Actions — edit icon on row hover */}
                       <TableCell>
-                        {renderEditableCell(rowId, 'description', rowDesc)}
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          className="h-7 w-7 opacity-0 group-hover:opacity-60 hover:!opacity-100 transition-opacity"
+                          onClick={() => setEditRow({ id: rowId, name: rowName })}
+                        >
+                          <Pencil className="h-3.5 w-3.5" />
+                        </Button>
                       </TableCell>
                     </TableRow>
                   )
@@ -488,18 +482,54 @@ export default function CatalogPage() {
               />
             </div>
             <div className="space-y-1">
-              <Label>Description <span className="text-muted-foreground text-xs">(optional)</span></Label>
-              <Input
-                placeholder="Short description"
-                value={addDesc}
-                onChange={e => setAddDesc(e.target.value)}
-              />
+              <Label>Warehouse <span className="text-muted-foreground text-xs">(optional)</span></Label>
+              <Select
+                value={addWarehouseId || 'none'}
+                onValueChange={v => setAddWarehouseId(v === 'none' ? '' : v)}
+              >
+                <SelectTrigger>
+                  <SelectValue placeholder="Select warehouse…" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="none">No warehouse</SelectItem>
+                  {warehouses.map(w => (
+                    <SelectItem key={w.id} value={w.id}>
+                      {w.name}{w.location ? ` — ${w.location}` : ''}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
             </div>
           </div>
           <DialogFooter>
             <Button variant="outline" onClick={() => setAddOpen(false)}>Cancel</Button>
             <Button onClick={handleAdd} disabled={addLoading || !addName.trim()}>
               {addLoading ? 'Creating…' : 'Create SKU'}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Per-row Edit Dialog */}
+      <Dialog open={!!editRow} onOpenChange={open => !open && setEditRow(null)}>
+        <DialogContent>
+          <DialogHeader><DialogTitle>Rename SKU</DialogTitle></DialogHeader>
+          <div className="space-y-2 py-2">
+            <Label>Name <span className="text-destructive">*</span></Label>
+            <Input
+              autoFocus
+              value={editRow?.name ?? ''}
+              onChange={e => setEditRow(r => r ? { ...r, name: e.target.value } : null)}
+              onKeyDown={e => {
+                if (e.key === 'Escape') setEditRow(null)
+                if (e.key === 'Enter') handleEditSave()
+              }}
+            />
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setEditRow(null)}>Cancel</Button>
+            <Button onClick={handleEditSave} disabled={editSaving || !editRow?.name.trim()}>
+              {editSaving ? 'Saving…' : 'Save'}
             </Button>
           </DialogFooter>
         </DialogContent>
@@ -557,21 +587,52 @@ function ChannelBadges({ mappings }: { mappings: SkuMapping[] }) {
   )
 }
 
-function SkuIds({ mappings }: { mappings: SkuMapping[] }) {
-  if (mappings.length === 0) return <span className="text-muted-foreground text-xs">—</span>
-  const byPlatform: Record<string, string[]> = {}
+function AccountNames({ mappings, accounts }: { mappings: SkuMapping[]; accounts: MarketplaceAccount[] }) {
+  if (mappings.length === 0) return <span className="text-muted-foreground text-sm">—</span>
+  const seen = new Set<string>()
+  const names: string[] = []
   for (const m of mappings) {
-    if (!byPlatform[m.platform]) byPlatform[m.platform] = []
-    byPlatform[m.platform].push(m.platform_sku)
+    if (m.marketplace_account_id) {
+      const name = accounts.find(a => a.id === m.marketplace_account_id)?.account_name
+      if (name && !seen.has(name)) { seen.add(name); names.push(name) }
+    }
   }
+  if (names.length === 0) return <span className="text-muted-foreground text-sm">—</span>
   return (
     <div className="flex flex-col gap-0.5">
-      {Object.entries(byPlatform).map(([platform, ids]) => (
-        <div key={platform} className="text-xs">
-          <span className="text-muted-foreground font-medium mr-1">
+      {names.map(name => <span key={name} className="text-sm">{name}</span>)}
+    </div>
+  )
+}
+
+function SkuIds({ mappings, accounts }: { mappings: SkuMapping[]; accounts: MarketplaceAccount[] }) {
+  if (mappings.length === 0) return <span className="text-muted-foreground text-xs">—</span>
+
+  // Group by platform + account combination
+  const groups = new Map<string, { platform: string; accountName: string | null; skus: string[] }>()
+  for (const m of mappings) {
+    const key = `${m.platform}::${m.marketplace_account_id ?? ''}`
+    const accountName = m.marketplace_account_id
+      ? (accounts.find(a => a.id === m.marketplace_account_id)?.account_name ?? null)
+      : null
+    if (!groups.has(key)) groups.set(key, { platform: m.platform, accountName, skus: [] })
+    groups.get(key)!.skus.push(m.platform_sku)
+  }
+
+  return (
+    <div className="flex flex-col gap-0.5">
+      {[...groups.values()].map(({ platform, accountName, skus }, i) => (
+        <div key={i} className="flex items-center gap-1 text-xs">
+          <span className="text-muted-foreground font-medium">
             {PLATFORM_SHORT[platform] ?? platform}:
           </span>
-          <span className="font-mono">{ids.join(', ')}</span>
+          {accountName && (
+            <>
+              <span className="text-muted-foreground">{accountName}</span>
+              <ChevronRight className="h-3 w-3 text-muted-foreground" />
+            </>
+          )}
+          <span className="font-mono">{skus.join(', ')}</span>
         </div>
       ))}
     </div>

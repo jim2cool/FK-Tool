@@ -10,17 +10,16 @@ export async function GET(request: Request) {
     const search = searchParams.get('search')
     const warehouseId = searchParams.get('warehouse_id')
     const platform = searchParams.get('platform')
+    const accountId = searchParams.get('account_id')
 
-    // Fetch ALL non-archived SKUs (parents, variants, flat) in one query
-    let query = supabase
+    // Fetch ALL non-archived SKUs (parents, variants, flat) in one query — no search filter
+    // here because search must match variant names too (applied after assembly below)
+    const query = supabase
       .from('master_skus')
       .select(`*, sku_mappings(id, platform, platform_sku, marketplace_account_id)`)
       .eq('tenant_id', tenantId)
       .eq('is_archived', false)
       .order('name')
-
-    // Search only on top-level names (parent or flat SKU)
-    if (search) query = query.ilike('name', `%${search}%`)
 
     const { data: allSkus, error } = await query
     if (error) throw error
@@ -34,6 +33,17 @@ export async function GET(request: Request) {
         .eq('tenant_id', tenantId)
         .eq('platform', platform)
       platformFilterIds = (mapped ?? []).map(m => m.master_sku_id)
+    }
+
+    // Account filter: find which SKU IDs have a mapping for this account
+    let accountFilterIds: string[] | null = null
+    if (accountId) {
+      const { data: mapped } = await supabase
+        .from('sku_mappings')
+        .select('master_sku_id')
+        .eq('tenant_id', tenantId)
+        .eq('marketplace_account_id', accountId)
+      accountFilterIds = (mapped ?? []).map(m => m.master_sku_id)
     }
 
     // Build purchase summaries
@@ -102,9 +112,28 @@ export async function GET(request: Request) {
       return { ...sku, variants, warehouse_summaries: warehouseSummaries }
     })
 
+    // Search: match on parent/flat name OR any variant name
+    if (search) {
+      const q = search.toLowerCase()
+      result = result.filter(s =>
+        s.name.toLowerCase().includes(q) ||
+        s.variants.some((v: { name: string }) => v.name.toLowerCase().includes(q))
+      )
+    }
+
     // Apply platform filter: flat SKUs or parents with matching variant
     if (platformFilterIds !== null) {
       const ids = platformFilterIds
+      result = result.filter(s =>
+        s.variants.length === 0
+          ? ids.includes(s.id)
+          : s.variants.some((v: { id: string }) => ids.includes(v.id))
+      )
+    }
+
+    // Apply account filter: flat SKUs or parents with matching variant
+    if (accountFilterIds !== null) {
+      const ids = accountFilterIds
       result = result.filter(s =>
         s.variants.length === 0
           ? ids.includes(s.id)

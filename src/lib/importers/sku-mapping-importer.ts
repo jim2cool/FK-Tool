@@ -6,12 +6,14 @@ import { getTenantId } from '@/lib/db/tenant'
  *  null means "skip this field". */
 export interface CsvColumnMapping {
   master_sku_name: string        // required — never null
-  flipkart_sku: string | null
-  amazon_sku: string | null
-  d2c_sku: string | null
+  flipkart_sku: string | null    // legacy flat column (no account)
+  amazon_sku: string | null      // legacy flat column (no account)
+  d2c_sku: string | null         // legacy flat column (no account)
   description: string | null
   parent_sku_name: string | null
   variant_attr_cols: Array<{ csv_col: string; attr_key: string }>
+  /** Per-account column mappings: each entry maps a CSV column to a specific marketplace account */
+  account_cols: Array<{ csv_col: string; marketplace_account_id: string; platform: string }>
 }
 
 export interface ImportResult {
@@ -42,9 +44,12 @@ export async function importSkuMappingCsv(
     const rowNum = i + 2 // 1-indexed, +1 for header row
 
     const variantSkuName = row[mapping.master_sku_name]?.trim()
-    if (!variantSkuName) {
-      failed++
-      errors.push({ row: rowNum, sku: '(blank)', message: 'Master SKU Name is empty' })
+    // Silently skip blank rows and comment rows (starting with #)
+    if (!variantSkuName || variantSkuName.startsWith('#')) {
+      if (!variantSkuName) {
+        failed++
+        errors.push({ row: rowNum, sku: '(blank)', message: 'Master SKU Name is empty' })
+      }
       continue
     }
 
@@ -126,13 +131,18 @@ export async function importSkuMappingCsv(
         created++
       }
 
-      // Upsert platform mappings onto the variant
-      const platforms = [
-        { platform: 'flipkart' as const, col: mapping.flipkart_sku },
-        { platform: 'amazon' as const, col: mapping.amazon_sku },
-        { platform: 'd2c' as const, col: mapping.d2c_sku },
+      // Upsert platform mappings onto the variant (legacy flat columns + per-account columns)
+      const platformCols = [
+        { platform: 'flipkart' as const, col: mapping.flipkart_sku, accountId: null as string | null },
+        { platform: 'amazon' as const, col: mapping.amazon_sku, accountId: null as string | null },
+        { platform: 'd2c' as const, col: mapping.d2c_sku, accountId: null as string | null },
+        ...(mapping.account_cols ?? []).map(ac => ({
+          platform: ac.platform as 'flipkart' | 'amazon' | 'd2c',
+          col: ac.csv_col,
+          accountId: ac.marketplace_account_id,
+        })),
       ]
-      for (const { platform, col } of platforms) {
+      for (const { platform, col, accountId } of platformCols) {
         if (!col) continue
         const platformSku = row[col]?.trim()
         if (!platformSku) continue
@@ -144,7 +154,10 @@ export async function importSkuMappingCsv(
           continue
         }
         const { error } = await supabase.from('sku_mappings').upsert(
-          { tenant_id: tenantId, master_sku_id: skuId, platform, platform_sku: platformSku },
+          {
+            tenant_id: tenantId, master_sku_id: skuId, platform, platform_sku: platformSku,
+            ...(accountId ? { marketplace_account_id: accountId } : {}),
+          },
           { onConflict: 'tenant_id,platform,platform_sku' }
         )
         if (error) {
@@ -197,12 +210,17 @@ export async function importSkuMappingCsv(
       created++
     }
 
-    const platforms = [
-      { platform: 'flipkart' as const, col: mapping.flipkart_sku },
-      { platform: 'amazon' as const, col: mapping.amazon_sku },
-      { platform: 'd2c' as const, col: mapping.d2c_sku },
+    const platformCols = [
+      { platform: 'flipkart' as const, col: mapping.flipkart_sku, accountId: null as string | null },
+      { platform: 'amazon' as const, col: mapping.amazon_sku, accountId: null as string | null },
+      { platform: 'd2c' as const, col: mapping.d2c_sku, accountId: null as string | null },
+      ...(mapping.account_cols ?? []).map(ac => ({
+        platform: ac.platform as 'flipkart' | 'amazon' | 'd2c',
+        col: ac.csv_col,
+        accountId: ac.marketplace_account_id,
+      })),
     ]
-    for (const { platform, col } of platforms) {
+    for (const { platform, col, accountId } of platformCols) {
       if (!col) continue
       const platformSku = row[col]?.trim()
       if (!platformSku) continue
@@ -215,7 +233,10 @@ export async function importSkuMappingCsv(
         continue
       }
       const { error } = await supabase.from('sku_mappings').upsert(
-        { tenant_id: tenantId, master_sku_id: skuId, platform, platform_sku: platformSku },
+        {
+          tenant_id: tenantId, master_sku_id: skuId, platform, platform_sku: platformSku,
+          ...(accountId ? { marketplace_account_id: accountId } : {}),
+        },
         { onConflict: 'tenant_id,platform,platform_sku' }
       )
       if (error) {
