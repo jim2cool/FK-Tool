@@ -152,12 +152,15 @@ export default function CatalogPage() {
     }).catch(() => {})
   }, [])
 
-  // Derived: count of unmapped SKUs/variants
-  const unmappedCount = skus.reduce((n, sku) => {
+  // Stocked but unmapped: has warehouse stock AND no channel mapping — these are critical
+  // because you have real inventory that isn't listed on any sales channel
+  const stockedUnmappedCount = skus.reduce((n, sku) => {
     if (sku.variants.length > 0) {
-      return n + sku.variants.filter(v => v.sku_mappings.length === 0).length
+      return n + sku.variants.filter(v =>
+        v.sku_mappings.length === 0 && v.warehouse_summaries.length > 0
+      ).length
     }
-    return sku.sku_mappings.length === 0 ? n + 1 : n
+    return (sku.sku_mappings.length === 0 && sku.warehouse_summaries.length > 0) ? n + 1 : n
   }, 0)
 
   const hasFilters = !!filterWarehouse || !!filterPlatform || !!filterAccount
@@ -229,11 +232,16 @@ export default function CatalogPage() {
   const displayRows: DisplayRow[] = skus.flatMap((sku): DisplayRow[] => {
     if (sku.variants.length > 0) {
       const rows = sku.variants.map(variant => ({ sku, variant, isVariant: true as const }))
-      if (showUnmappedOnly) return rows.filter(r => r.variant.sku_mappings.length === 0)
+      if (showUnmappedOnly) {
+        // Show variants that are stocked but not mapped to any channel
+        return rows.filter(r =>
+          r.variant.sku_mappings.length === 0 && r.variant.warehouse_summaries.length > 0
+        )
+      }
       return rows
     }
     const row = { sku, variant: null, isVariant: false as const }
-    if (showUnmappedOnly && sku.sku_mappings.length > 0) return []
+    if (showUnmappedOnly && (sku.sku_mappings.length > 0 || sku.warehouse_summaries.length === 0)) return []
     return [row]
   })
 
@@ -259,20 +267,20 @@ export default function CatalogPage() {
         </div>
       </div>
 
-      {/* Unmapped banner */}
-      {!loading && unmappedCount > 0 && (
-        <div className="flex items-center gap-3 rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800">
+      {/* Stocked-but-unmapped banner — only fires for inventory that can't reach any channel */}
+      {!loading && stockedUnmappedCount > 0 && (
+        <div className="flex items-center gap-3 rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-800">
           <AlertTriangle className="h-4 w-4 shrink-0" />
           <span>
-            <strong>{unmappedCount} SKU{unmappedCount !== 1 ? 's' : ''}</strong> have no platform
-            mapping — they won&apos;t appear in channel reports.
+            <strong>{stockedUnmappedCount} SKU{stockedUnmappedCount !== 1 ? 's are' : ' is'} in stock</strong>{' '}
+            at a warehouse but not mapped to any channel — this inventory can&apos;t be sold or reported.
           </span>
           <Button
             variant="link" size="sm"
-            className="text-amber-800 h-auto p-0 underline underline-offset-2 ml-auto shrink-0"
+            className="text-red-800 h-auto p-0 underline underline-offset-2 ml-auto shrink-0"
             onClick={() => setShowUnmappedOnly(v => !v)}
           >
-            {showUnmappedOnly ? 'Show all' : 'Filter to unmapped ↓'}
+            {showUnmappedOnly ? 'Show all' : 'Show these SKUs ↓'}
           </Button>
         </div>
       )}
@@ -356,12 +364,7 @@ export default function CatalogPage() {
         {(hasFilters || showUnmappedOnly) && (
           <Button
             variant="ghost" size="sm"
-            onClick={() => {
-              setFilterWarehouse('')
-              setFilterPlatform('')
-              setFilterAccount('')
-              setShowUnmappedOnly(false)
-            }}
+            onClick={() => { setFilterWarehouse(''); setFilterPlatform(''); setFilterAccount(''); setShowUnmappedOnly(false) }}
           >
             <X className="h-3.5 w-3.5 mr-1" />
             Clear filters
@@ -396,7 +399,7 @@ export default function CatalogPage() {
                 <TableRow>
                   <TableCell colSpan={6} className="text-center py-12 text-muted-foreground">
                     {showUnmappedOnly
-                      ? 'No unmapped SKUs — all SKUs have platform mappings.'
+                      ? 'No stocked SKUs are missing a channel mapping — great!'
                       : search || hasFilters
                         ? 'No SKUs match your filters.'
                         : 'No master SKUs yet. Add your first SKU above.'}
