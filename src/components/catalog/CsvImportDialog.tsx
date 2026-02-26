@@ -50,12 +50,12 @@ const MAPPING_FIELDS: MappingField[] = [
 // ─── Fuzzy auto-detection ─────────────────────────────────────────────────────
 
 const SYNONYMS: Record<StringMappingKey, string[]> = {
-  master_sku_name: ['mastersku', 'masterskuname', 'skuname', 'productname', 'itemname', 'title', 'name', 'sku', 'product', 'skuid'],
-  parent_sku_name: ['parent', 'parentsku', 'parentproduct', 'productgroup', 'group', 'parentname', 'basename'],
-  flipkart_sku:    ['flipkart', 'fksku', 'fklisting', 'fkid', 'flipkartsku', 'flipkartlisting', 'fklistingid'],
-  amazon_sku:      ['amazon', 'amazonsku', 'asin', 'amz', 'amzsku', 'amazonasin', 'amazonlisting'],
-  d2c_sku:         ['d2c', 'd2csku', 'websitesku', 'directsku', 'ownsite', 'shopifysku', 'websiteid'],
-  description:     ['description', 'desc', 'details', 'productdescription', 'itemdescription', 'skudescription'],
+  master_sku_name: ['mastersku', 'masterskuname', 'skuname', 'productname', 'itemname', 'title', 'name', 'sku', 'product', 'skuid', 'masterskucode', 'skucode', 'code', 'productcode', 'item', 'itemcode', 'skukey', 'variantname'],
+  parent_sku_name: ['parent', 'parentsku', 'parentproduct', 'productgroup', 'group', 'parentname', 'basename', 'masterproduct', 'parentitem', 'productfamily'],
+  flipkart_sku:    ['flipkart', 'fksku', 'fklisting', 'fkid', 'flipkartsku', 'flipkartlisting', 'fklistingid', 'fskuid', 'fksku', 'flipkartid', 'fsn', 'fkskuid'],
+  amazon_sku:      ['amazon', 'amazonsku', 'asin', 'amz', 'amzsku', 'amazonasin', 'amazonlisting', 'amazonasin', 'amzn', 'amzasin', 'amazonid', 'amazonskuid'],
+  d2c_sku:         ['d2c', 'd2csku', 'websitesku', 'directsku', 'ownsite', 'shopifysku', 'websiteid', 'd2cid', 'storeid', 'woosku', 'shopify', 'woocommerce', 'website'],
+  description:     ['description', 'desc', 'details', 'productdescription', 'itemdescription', 'skudescription', 'productdesc', 'itemdesc', 'summary', 'about', 'info', 'notes', 'shortdescription'],
 }
 
 function normalise(s: string): string {

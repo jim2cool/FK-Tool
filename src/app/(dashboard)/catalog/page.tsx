@@ -1,19 +1,19 @@
 'use client'
-import { useEffect, useState, useCallback, Fragment } from 'react'
+import { useEffect, useState, useCallback } from 'react'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
+import { Badge } from '@/components/ui/badge'
 import { Card, CardContent } from '@/components/ui/card'
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { Skeleton } from '@/components/ui/skeleton'
-import { Separator } from '@/components/ui/separator'
 import { SkuMappingDialog } from '@/components/catalog/SkuMappingDialog'
 import { CsvImportDialog } from '@/components/catalog/CsvImportDialog'
-import { AddVariantDialog } from '@/components/catalog/AddVariantDialog'
 import { toast } from 'sonner'
-import { Plus, Search, Edit2, Map, Upload, X, ChevronRight, ChevronDown } from 'lucide-react'
+import { Plus, Search, Upload, X, AlertTriangle, Pencil, Check } from 'lucide-react'
+import { cn } from '@/lib/utils'
 import type { Platform } from '@/types'
 
 interface SkuMapping {
@@ -69,10 +69,15 @@ interface MarketplaceAccount {
   account_name: string
 }
 
-const platformColors: Record<Platform, string> = {
-  flipkart: 'bg-yellow-100 text-yellow-800 border-yellow-200',
-  amazon: 'bg-orange-100 text-orange-800 border-orange-200',
-  d2c: 'bg-blue-100 text-blue-800 border-blue-200',
+type EditingCell = { skuId: string; field: 'name' | 'description'; value: string }
+type DisplayRow =
+  | { sku: MasterSku; variant: Variant; isVariant: true }
+  | { sku: MasterSku; variant: null; isVariant: false }
+
+const PLATFORM_SHORT: Record<string, string> = {
+  flipkart: 'FK',
+  amazon: 'AMZ',
+  d2c: 'D2C',
 }
 
 const PLATFORMS: { value: Platform; label: string }[] = [
@@ -80,7 +85,6 @@ const PLATFORMS: { value: Platform; label: string }[] = [
   { value: 'amazon', label: 'Amazon' },
   { value: 'd2c', label: 'D2C' },
 ]
-
 
 export default function CatalogPage() {
   const [skus, setSkus] = useState<MasterSku[]>([])
@@ -93,6 +97,7 @@ export default function CatalogPage() {
   const [searchDebounced, setSearchDebounced] = useState('')
   const [filterWarehouse, setFilterWarehouse] = useState('')
   const [filterPlatform, setFilterPlatform] = useState('')
+  const [showUnmappedOnly, setShowUnmappedOnly] = useState(false)
 
   // Add SKU dialog
   const [addOpen, setAddOpen] = useState(false)
@@ -100,33 +105,15 @@ export default function CatalogPage() {
   const [addDesc, setAddDesc] = useState('')
   const [addLoading, setAddLoading] = useState(false)
 
-  // Edit SKU dialog
-  const [editSku, setEditSku] = useState<MasterSku | null>(null)
-  const [editName, setEditName] = useState('')
-  const [editDesc, setEditDesc] = useState('')
-  const [editLoading, setEditLoading] = useState(false)
+  // Inline editing
+  const [editingCell, setEditingCell] = useState<EditingCell | null>(null)
+  const [editSaving, setEditSaving] = useState(false)
 
   // Mapping dialog
   const [mappingSku, setMappingSku] = useState<MasterSku | null>(null)
 
   // CSV Import dialog
   const [csvImportOpen, setCsvImportOpen] = useState(false)
-
-  // Expanded parents
-  const [expandedParents, setExpandedParents] = useState<Set<string>>(new Set())
-  function toggleExpanded(id: string) {
-    setExpandedParents(prev => {
-      const next = new Set(prev)
-      next.has(id) ? next.delete(id) : next.add(id)
-      return next
-    })
-  }
-
-  // Add Variant dialog
-  const [addVariantParent, setAddVariantParent] = useState<MasterSku | null>(null)
-
-  // "Has variants" toggle in Add SKU dialog
-  const [addHasVariants, setAddHasVariants] = useState(false)
 
   // Debounce search
   useEffect(() => {
@@ -163,6 +150,14 @@ export default function CatalogPage() {
     }).catch(() => {})
   }, [])
 
+  // Derived: count of unmapped SKUs/variants
+  const unmappedCount = skus.reduce((n, sku) => {
+    if (sku.variants.length > 0) {
+      return n + sku.variants.filter(v => v.sku_mappings.length === 0).length
+    }
+    return sku.sku_mappings.length === 0 ? n + 1 : n
+  }, 0)
+
   const hasFilters = !!filterWarehouse || !!filterPlatform
 
   async function handleAdd() {
@@ -182,7 +177,6 @@ export default function CatalogPage() {
       toast.success('Master SKU created')
       setAddName('')
       setAddDesc('')
-      setAddHasVariants(false)
       setAddOpen(false)
       fetchSkus()
     } finally {
@@ -190,37 +184,99 @@ export default function CatalogPage() {
     }
   }
 
-  function openEdit(sku: MasterSku) {
-    setEditSku(sku)
-    setEditName(sku.name)
-    setEditDesc(sku.description ?? '')
-  }
-
-  async function handleEdit() {
-    if (!editSku) return
-    if (!editName.trim()) return toast.error('SKU name is required')
-    setEditLoading(true)
+  async function handleInlineSave() {
+    if (!editingCell) return
+    if (!editingCell.value.trim() && editingCell.field === 'name') {
+      return toast.error('SKU name cannot be empty')
+    }
+    setEditSaving(true)
     try {
       const res = await fetch('/api/catalog/master-skus', {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ id: editSku.id, name: editName.trim(), description: editDesc.trim() || null }),
+        body: JSON.stringify({
+          id: editingCell.skuId,
+          [editingCell.field]: editingCell.value.trim() || null,
+        }),
       })
       if (!res.ok) {
         const { error } = await res.json()
-        toast.error(error ?? 'Failed to update SKU')
+        toast.error(error ?? 'Failed to update')
         return
       }
-      toast.success('SKU updated')
-      setEditSku(null)
-      fetchSkus()
+      await fetchSkus()
+      setEditingCell(null)
     } finally {
-      setEditLoading(false)
+      setEditSaving(false)
     }
   }
 
-  const getPlatformSkus = (sku: MasterSku, platform: Platform): string[] =>
-    sku.sku_mappings.filter(m => m.platform === platform).map(m => m.platform_sku)
+  // Inline editable cell — renders as text+pencil or input+save/cancel
+  function renderEditableCell(
+    skuId: string,
+    field: 'name' | 'description',
+    value: string | null,
+    opts?: { bold?: boolean; small?: boolean }
+  ) {
+    const isEditing = editingCell?.skuId === skuId && editingCell?.field === field
+    if (isEditing) {
+      return (
+        <div className="flex items-center gap-1">
+          <Input
+            autoFocus
+            value={editingCell.value}
+            onChange={e => setEditingCell(c => c ? { ...c, value: e.target.value } : null)}
+            onKeyDown={e => {
+              if (e.key === 'Escape') setEditingCell(null)
+              if (e.key === 'Enter') handleInlineSave()
+            }}
+            className="h-7 text-sm py-0 min-w-0"
+          />
+          <Button
+            size="icon" variant="ghost" className="h-6 w-6 shrink-0"
+            onClick={handleInlineSave} disabled={editSaving}
+          >
+            <Check className="h-3 w-3" />
+          </Button>
+          <Button
+            size="icon" variant="ghost" className="h-6 w-6 shrink-0"
+            onClick={() => setEditingCell(null)}
+          >
+            <X className="h-3 w-3" />
+          </Button>
+        </div>
+      )
+    }
+    return (
+      <div className="group/cell flex items-center gap-1 min-w-0">
+        <span className={cn(
+          'truncate',
+          opts?.bold ? 'font-medium text-sm' : 'text-sm text-muted-foreground',
+          opts?.small && 'text-xs'
+        )}>
+          {value ?? '—'}
+        </span>
+        <button
+          className="opacity-0 group-hover/cell:opacity-40 hover:!opacity-100 transition-opacity shrink-0"
+          onClick={() => setEditingCell({ skuId, field, value: value ?? '' })}
+        >
+          <Pencil className="h-3 w-3" />
+        </button>
+      </div>
+    )
+  }
+
+  // Build display rows: flat SKUs as-is, parents as one row per variant
+  const displayRows: DisplayRow[] = skus.flatMap((sku): DisplayRow[] => {
+    if (sku.variants.length > 0) {
+      const rows = sku.variants.map(variant => ({ sku, variant, isVariant: true as const }))
+      if (showUnmappedOnly) return rows.filter(r => r.variant.sku_mappings.length === 0)
+      return rows
+    }
+    const row = { sku, variant: null, isVariant: false as const }
+    if (showUnmappedOnly && sku.sku_mappings.length > 0) return []
+    return [row]
+  })
 
   return (
     <div className="space-y-6">
@@ -244,9 +300,26 @@ export default function CatalogPage() {
         </div>
       </div>
 
+      {/* Unmapped banner */}
+      {!loading && unmappedCount > 0 && (
+        <div className="flex items-center gap-3 rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800">
+          <AlertTriangle className="h-4 w-4 shrink-0" />
+          <span>
+            <strong>{unmappedCount} SKU{unmappedCount !== 1 ? 's' : ''}</strong> have no platform
+            mapping — they won&apos;t appear in channel reports.
+          </span>
+          <Button
+            variant="link" size="sm"
+            className="text-amber-800 h-auto p-0 underline underline-offset-2 ml-auto shrink-0"
+            onClick={() => setShowUnmappedOnly(v => !v)}
+          >
+            {showUnmappedOnly ? 'Show all' : 'Filter to unmapped ↓'}
+          </Button>
+        </div>
+      )}
+
       {/* Filter bar */}
       <div className="flex flex-wrap items-end gap-3">
-        {/* SKU search */}
         <div className="space-y-1">
           <Label className="text-xs text-muted-foreground">Search SKU</Label>
           <div className="relative">
@@ -260,7 +333,6 @@ export default function CatalogPage() {
           </div>
         </div>
 
-        {/* Warehouse filter */}
         <div className="space-y-1">
           <Label className="text-xs text-muted-foreground">Warehouse</Label>
           <Select
@@ -281,7 +353,6 @@ export default function CatalogPage() {
           </Select>
         </div>
 
-        {/* Channel / Platform filter */}
         <div className="space-y-1">
           <Label className="text-xs text-muted-foreground">Channel</Label>
           <Select
@@ -300,11 +371,14 @@ export default function CatalogPage() {
           </Select>
         </div>
 
-        {hasFilters && (
+        {(hasFilters || showUnmappedOnly) && (
           <Button
-            variant="ghost"
-            size="sm"
-            onClick={() => { setFilterWarehouse(''); setFilterPlatform('') }}
+            variant="ghost" size="sm"
+            onClick={() => {
+              setFilterWarehouse('')
+              setFilterPlatform('')
+              setShowUnmappedOnly(false)
+            }}
           >
             <X className="h-3.5 w-3.5 mr-1" />
             Clear filters
@@ -318,146 +392,79 @@ export default function CatalogPage() {
           <Table>
             <TableHeader>
               <TableRow>
-                <TableHead>Master SKU Name</TableHead>
-                <TableHead>Description</TableHead>
-                <TableHead>Flipkart</TableHead>
-                <TableHead>Amazon</TableHead>
-                <TableHead>D2C</TableHead>
+                <TableHead className="w-[260px]">Master Product</TableHead>
+                <TableHead>Channels</TableHead>
+                <TableHead>SKU IDs</TableHead>
                 <TableHead>Warehouse</TableHead>
-                <TableHead>Qty</TableHead>
-                <TableHead className="text-right">Actions</TableHead>
+                <TableHead>Description</TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
               {loading ? (
                 Array.from({ length: 5 }).map((_, i) => (
                   <TableRow key={i}>
-                    {Array.from({ length: 8 }).map((_, j) => (
+                    {Array.from({ length: 5 }).map((_, j) => (
                       <TableCell key={j}><Skeleton className="h-4 w-full" /></TableCell>
                     ))}
                   </TableRow>
                 ))
-              ) : skus.length === 0 ? (
+              ) : displayRows.length === 0 ? (
                 <TableRow>
-                  <TableCell colSpan={8} className="text-center py-12 text-muted-foreground">
-                    {search || hasFilters
-                      ? 'No SKUs match your filters.'
-                      : 'No master SKUs yet. Add your first SKU above.'}
+                  <TableCell colSpan={5} className="text-center py-12 text-muted-foreground">
+                    {showUnmappedOnly
+                      ? 'No unmapped SKUs — all SKUs have platform mappings.'
+                      : search || hasFilters
+                        ? 'No SKUs match your filters.'
+                        : 'No master SKUs yet. Add your first SKU above.'}
                   </TableCell>
                 </TableRow>
               ) : (
-                skus.map(sku => {
-                  const isParent = sku.variants.length > 0
-                  const isExpanded = expandedParents.has(sku.id)
+                displayRows.map(row => {
+                  const { sku, variant, isVariant } = row
+                  const mappings = isVariant ? variant.sku_mappings : sku.sku_mappings
+                  const warehouseSummaries = isVariant ? variant.warehouse_summaries : sku.warehouse_summaries
+                  const rowId = isVariant ? variant.id : sku.id
+                  const rowDesc = isVariant ? variant.description : sku.description
 
                   return (
-                    <Fragment key={sku.id}>
-                      {/* Parent / flat SKU row */}
-                      <TableRow className={isParent ? 'bg-muted/20' : undefined}>
-                        <TableCell className="font-medium">
-                          <div className="flex items-center gap-1.5">
-                            {isParent && (
-                              <button
-                                onClick={() => toggleExpanded(sku.id)}
-                                className="text-muted-foreground hover:text-foreground"
-                              >
-                                {isExpanded
-                                  ? <ChevronDown className="h-4 w-4" />
-                                  : <ChevronRight className="h-4 w-4" />}
-                              </button>
-                            )}
-                            {!isParent && <span className="w-5" />}
-                            <span>{sku.name}</span>
-                            {isParent && (
-                              <span className="text-xs text-muted-foreground ml-1">
-                                ({sku.variants.length} variant{sku.variants.length !== 1 ? 's' : ''})
-                              </span>
-                            )}
+                    <TableRow key={rowId} className="group">
+                      {/* Master Product column */}
+                      <TableCell>
+                        {isVariant ? (
+                          <div>
+                            <div className="font-medium text-sm">{sku.name}</div>
+                            <div className="flex items-center gap-1 mt-0.5">
+                              {renderEditableCell(variant.id, 'name', variant.name, { small: true })}
+                            </div>
                           </div>
-                        </TableCell>
-                        <TableCell className="text-muted-foreground text-sm max-w-[160px] truncate">
-                          {sku.description ?? '—'}
-                        </TableCell>
-                        <TableCell>
-                          {isParent ? '—' : <PlatformSkuCell skus={getPlatformSkus(sku, 'flipkart')} platform="flipkart" />}
-                        </TableCell>
-                        <TableCell>
-                          {isParent ? '—' : <PlatformSkuCell skus={getPlatformSkus(sku, 'amazon')} platform="amazon" />}
-                        </TableCell>
-                        <TableCell>
-                          {isParent ? '—' : <PlatformSkuCell skus={getPlatformSkus(sku, 'd2c')} platform="d2c" />}
-                        </TableCell>
-                        <TableCell>
-                          <WarehouseNameCell summaries={sku.warehouse_summaries} />
-                        </TableCell>
-                        <TableCell>
-                          <WarehouseQtyCell summaries={sku.warehouse_summaries} />
-                        </TableCell>
-                        <TableCell className="text-right">
-                          <div className="flex items-center justify-end gap-1">
-                            <Button variant="ghost" size="sm" onClick={() => openEdit(sku)}>
-                              <Edit2 className="h-3.5 w-3.5" />
-                            </Button>
-                            {isParent ? (
-                              <Button variant="ghost" size="sm" onClick={() => setAddVariantParent(sku)}>
-                                <Plus className="h-3.5 w-3.5 mr-1" />
-                                Variant
-                              </Button>
-                            ) : (
-                              <Button variant="ghost" size="sm" onClick={() => setMappingSku(sku)}>
-                                <Map className="h-3.5 w-3.5 mr-1" />
-                                Map
-                              </Button>
-                            )}
-                          </div>
-                        </TableCell>
-                      </TableRow>
+                        ) : (
+                          renderEditableCell(sku.id, 'name', sku.name, { bold: true })
+                        )}
+                      </TableCell>
 
-                      {/* Expanded variant rows */}
-                      {isParent && isExpanded && sku.variants.map(variant => (
-                        <TableRow key={variant.id} className="bg-muted/5 border-l-2 border-l-muted">
-                          <TableCell className="font-medium pl-10">
-                            <div className="flex items-center gap-2">
-                              <span className="text-sm">{variant.name}</span>
-                              {variant.variant_attributes && Object.entries(variant.variant_attributes).map(([k, v]) => (
-                                <span key={k} className="text-xs px-1.5 py-0.5 rounded bg-secondary border text-secondary-foreground">
-                                  {k}: {v}
-                                </span>
-                              ))}
-                            </div>
-                          </TableCell>
-                          <TableCell className="text-muted-foreground text-sm max-w-[160px] truncate">
-                            {variant.description ?? '—'}
-                          </TableCell>
-                          <TableCell>
-                            <PlatformSkuCell skus={variant.sku_mappings.filter(m => m.platform === 'flipkart').map(m => m.platform_sku)} platform="flipkart" />
-                          </TableCell>
-                          <TableCell>
-                            <PlatformSkuCell skus={variant.sku_mappings.filter(m => m.platform === 'amazon').map(m => m.platform_sku)} platform="amazon" />
-                          </TableCell>
-                          <TableCell>
-                            <PlatformSkuCell skus={variant.sku_mappings.filter(m => m.platform === 'd2c').map(m => m.platform_sku)} platform="d2c" />
-                          </TableCell>
-                          <TableCell>
-                            <WarehouseNameCell summaries={variant.warehouse_summaries} />
-                          </TableCell>
-                          <TableCell>
-                            <WarehouseQtyCell summaries={variant.warehouse_summaries} />
-                          </TableCell>
-                          <TableCell className="text-right">
-                            <div className="flex items-center justify-end gap-1">
-                              <Button variant="ghost" size="sm" onClick={() => openEdit(variant as unknown as MasterSku)}>
-                                <Edit2 className="h-3.5 w-3.5" />
-                              </Button>
-                              <Button variant="ghost" size="sm" onClick={() => setMappingSku(variant as unknown as MasterSku)}>
-                                <Map className="h-3.5 w-3.5 mr-1" />
-                                Map
-                              </Button>
-                            </div>
-                          </TableCell>
-                        </TableRow>
-                      ))}
-                    </Fragment>
+                      {/* Channels column — click to open mapping dialog */}
+                      <TableCell
+                        className="cursor-pointer"
+                        onClick={() => setMappingSku(isVariant ? (variant as unknown as MasterSku) : sku)}
+                      >
+                        <ChannelBadges mappings={mappings} />
+                      </TableCell>
+
+                      {/* SKU IDs column */}
+                      <TableCell>
+                        <SkuIds mappings={mappings} />
+                      </TableCell>
+
+                      {/* Warehouse column */}
+                      <TableCell>
+                        <WarehouseNames summaries={warehouseSummaries} />
+                      </TableCell>
+
+                      {/* Description column */}
+                      <TableCell>
+                        {renderEditableCell(rowId, 'description', rowDesc)}
+                      </TableCell>
+                    </TableRow>
                   )
                 })
               )}
@@ -482,48 +489,17 @@ export default function CatalogPage() {
             </div>
             <div className="space-y-1">
               <Label>Description <span className="text-muted-foreground text-xs">(optional)</span></Label>
-              <Input placeholder="Short description" value={addDesc} onChange={e => setAddDesc(e.target.value)} />
-            </div>
-            <div className="flex items-center gap-2">
-              <input
-                type="checkbox"
-                id="hasVariants"
-                checked={addHasVariants}
-                onChange={e => setAddHasVariants(e.target.checked)}
-                className="h-4 w-4"
+              <Input
+                placeholder="Short description"
+                value={addDesc}
+                onChange={e => setAddDesc(e.target.value)}
               />
-              <Label htmlFor="hasVariants" className="text-sm font-normal cursor-pointer">
-                This product has variants (size, color, etc.)
-              </Label>
             </div>
           </div>
           <DialogFooter>
             <Button variant="outline" onClick={() => setAddOpen(false)}>Cancel</Button>
             <Button onClick={handleAdd} disabled={addLoading || !addName.trim()}>
-              {addLoading ? 'Creating…' : addHasVariants ? 'Create Parent Product' : 'Create SKU'}
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
-
-      {/* Edit SKU Dialog */}
-      <Dialog open={!!editSku} onOpenChange={open => !open && setEditSku(null)}>
-        <DialogContent>
-          <DialogHeader><DialogTitle>Edit Master SKU</DialogTitle></DialogHeader>
-          <div className="space-y-4 py-2">
-            <div className="space-y-1">
-              <Label>SKU Name <span className="text-destructive">*</span></Label>
-              <Input value={editName} onChange={e => setEditName(e.target.value)} onKeyDown={e => e.key === 'Enter' && handleEdit()} />
-            </div>
-            <div className="space-y-1">
-              <Label>Description <span className="text-muted-foreground text-xs">(optional)</span></Label>
-              <Input value={editDesc} onChange={e => setEditDesc(e.target.value)} />
-            </div>
-          </div>
-          <DialogFooter>
-            <Button variant="outline" onClick={() => setEditSku(null)}>Cancel</Button>
-            <Button onClick={handleEdit} disabled={editLoading || !editName.trim()}>
-              {editLoading ? 'Saving…' : 'Save Changes'}
+              {addLoading ? 'Creating…' : 'Create SKU'}
             </Button>
           </DialogFooter>
         </DialogContent>
@@ -548,58 +524,68 @@ export default function CatalogPage() {
         onOpenChange={setCsvImportOpen}
         onImported={fetchSkus}
       />
-
-      {/* Add Variant Dialog */}
-      {addVariantParent && (
-        <AddVariantDialog
-          open={!!addVariantParent}
-          onOpenChange={(open: boolean) => !open && setAddVariantParent(null)}
-          parentSku={addVariantParent}
-          marketplaceAccounts={accounts}
-          onSaved={fetchSkus}
-        />
-      )}
     </div>
   )
 }
 
-function PlatformSkuCell({ skus, platform }: { skus: string[]; platform: Platform }) {
-  const colors: Record<Platform, string> = {
-    flipkart: 'bg-yellow-100 text-yellow-800 border-yellow-200',
-    amazon: 'bg-orange-100 text-orange-800 border-orange-200',
-    d2c: 'bg-blue-100 text-blue-800 border-blue-200',
+// ── Helper components (no state needed, defined outside) ─────────────────────
+
+function ChannelBadges({ mappings }: { mappings: SkuMapping[] }) {
+  if (mappings.length === 0) {
+    return (
+      <Badge
+        variant="outline"
+        className="border-amber-400 text-amber-700 gap-1 text-xs font-normal cursor-pointer hover:bg-amber-50"
+      >
+        <AlertTriangle className="h-3 w-3" />
+        Unmapped
+      </Badge>
+    )
   }
-  if (skus.length === 0) return <span className="text-muted-foreground">—</span>
+  const platforms = [...new Set(mappings.map(m => m.platform))]
   return (
     <div className="flex flex-wrap gap-1">
-      {skus.map(s => (
-        <span key={s} className={`text-xs px-1.5 py-0.5 rounded border font-mono ${colors[platform]}`}>{s}</span>
+      {platforms.map(p => (
+        <Badge
+          key={p}
+          className="bg-emerald-100 text-emerald-800 border-0 text-xs font-medium hover:bg-emerald-200 cursor-pointer"
+        >
+          {PLATFORM_SHORT[p] ?? p}
+        </Badge>
       ))}
     </div>
   )
 }
 
-function WarehouseNameCell({ summaries }: { summaries: WarehouseSummary[] }) {
-  if (summaries.length === 0) return <span className="text-muted-foreground">—</span>
+function SkuIds({ mappings }: { mappings: SkuMapping[] }) {
+  if (mappings.length === 0) return <span className="text-muted-foreground text-xs">—</span>
+  const byPlatform: Record<string, string[]> = {}
+  for (const m of mappings) {
+    if (!byPlatform[m.platform]) byPlatform[m.platform] = []
+    byPlatform[m.platform].push(m.platform_sku)
+  }
   return (
-    <div className="space-y-1">
-      {summaries.map(s => (
-        <div key={s.warehouse_id} className="text-xs leading-5">
-          <span className="font-medium" title={s.location ?? undefined}>{s.warehouse_name}</span>
+    <div className="flex flex-col gap-0.5">
+      {Object.entries(byPlatform).map(([platform, ids]) => (
+        <div key={platform} className="text-xs">
+          <span className="text-muted-foreground font-medium mr-1">
+            {PLATFORM_SHORT[platform] ?? platform}:
+          </span>
+          <span className="font-mono">{ids.join(', ')}</span>
         </div>
       ))}
     </div>
   )
 }
 
-function WarehouseQtyCell({ summaries }: { summaries: WarehouseSummary[] }) {
-  if (summaries.length === 0) return <span className="text-muted-foreground">—</span>
+function WarehouseNames({ summaries }: { summaries: WarehouseSummary[] }) {
+  if (summaries.length === 0) return <span className="text-muted-foreground text-sm">—</span>
   return (
-    <div className="space-y-1">
+    <div className="flex flex-col gap-0.5">
       {summaries.map(s => (
-        <div key={s.warehouse_id} className="text-xs leading-5 tabular-nums">
-          {s.total_qty}
-        </div>
+        <span key={s.warehouse_id} className="text-sm" title={s.location ?? undefined}>
+          {s.warehouse_name}
+        </span>
       ))}
     </div>
   )
