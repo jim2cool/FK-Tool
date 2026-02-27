@@ -1,5 +1,5 @@
 import Papa from 'papaparse'
-import { createClient } from '@/lib/supabase/client'
+import { createClient } from '@/lib/supabase/server'
 
 // ── Fixed column names ────────────────────────────────────────────────────────
 
@@ -88,7 +88,7 @@ export async function importCatalogCsv(
   csvText: string,
   tenantId: string
 ): Promise<ImportResult> {
-  const supabase = createClient()
+  const supabase = await createClient()
 
   // Load all marketplace accounts for this tenant
   const { data: accounts, error: accountsErr } = await supabase
