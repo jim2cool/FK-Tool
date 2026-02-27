@@ -10,8 +10,9 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { Separator } from '@/components/ui/separator'
 import { Skeleton } from '@/components/ui/skeleton'
 import { PurchasesImportDialog } from '@/components/purchases/PurchasesImportDialog'
+import { exportCsv, todayString } from '@/lib/utils/csv-export'
 import { toast } from 'sonner'
-import { Plus, Upload, ChevronDown, ChevronRight, Pencil, Trash2, IndianRupee } from 'lucide-react'
+import { Plus, Upload, Download, ChevronDown, ChevronRight, Pencil, Trash2, IndianRupee } from 'lucide-react'
 import { format, parseISO } from 'date-fns'
 
 // ── Types ─────────────────────────────────────────────────────────────────────
@@ -115,6 +116,27 @@ export default function PurchasesPage() {
 
   // Import dialog
   const [importOpen, setImportOpen] = useState(false)
+
+  // Wipe data
+  const [wipeConfirmOpen, setWipeConfirmOpen] = useState(false)
+  const [wiping, setWiping] = useState(false)
+
+  async function handleWipePurchases() {
+    setWiping(true)
+    try {
+      const res = await fetch('/api/purchases/wipe', { method: 'DELETE' })
+      if (!res.ok) {
+        const { error } = await res.json()
+        toast.error(error ?? 'Wipe failed')
+        return
+      }
+      toast.success('All purchases wiped')
+      setWipeConfirmOpen(false)
+      await loadPurchases()
+    } finally {
+      setWiping(false)
+    }
+  }
 
   // Add/Edit dialog
   const [dialogOpen, setDialogOpen] = useState(false)
@@ -342,6 +364,42 @@ export default function PurchasesPage() {
     })
   }
 
+  function handleExport() {
+    const headers = [
+      'Receipt Date', 'Master Product', 'Variant', 'Qty',
+      'HSN Code', 'GST Rate', 'Tax Paid',
+      'Rate/Unit (ex)', 'GST/Unit', 'Unit Price (incl.)',
+      'Total GST', 'Total Amount',
+      'Vendor', 'Invoice #', 'Warehouse',
+    ]
+    const rows = filtered.map(p => {
+      const { gstPerUnit, unitIncl, totalGst, totalAmt } = calcGST(
+        p.unit_purchase_price, p.gst_rate_slab, p.tax_paid, p.quantity,
+      )
+      const skuName  = p.master_skus?.name ?? ''
+      const parentId = p.master_skus?.parent_id
+      const parentSku = parentId ? skus.find(s => s.id === parentId) : null
+      return [
+        p.purchase_date,
+        parentSku ? parentSku.name : skuName,
+        parentSku ? skuName : '',
+        String(p.quantity),
+        p.hsn_code ?? '',
+        p.gst_rate_slab ?? '',
+        p.tax_paid ? 'Y' : 'N',
+        String(p.unit_purchase_price),
+        String(gstPerUnit.toFixed(2)),
+        String(unitIncl.toFixed(2)),
+        totalGst === 0 ? '0' : String(totalGst.toFixed(2)),
+        String(totalAmt.toFixed(2)),
+        p.supplier ?? '',
+        p.invoice_number ?? '',
+        p.warehouses?.name ?? '',
+      ]
+    })
+    exportCsv(headers, rows, `purchases-export-${todayString()}.csv`)
+  }
+
   function clearFilters() {
     setSearch(''); setFilterWarehouse(''); setFilterFrom(''); setFilterTo('')
     setFilterGst(''); setFilterTaxPaid('')
@@ -358,6 +416,17 @@ export default function PurchasesPage() {
           <p className="text-sm text-muted-foreground mt-1">Track procurement and cost of goods</p>
         </div>
         <div className="flex items-center gap-2">
+          <Button
+            variant="outline"
+            className="border-red-500 text-red-500 hover:bg-red-50 hover:text-red-600"
+            onClick={() => setWipeConfirmOpen(true)}
+          >
+            Wipe Data
+          </Button>
+          <Button variant="outline" onClick={handleExport} disabled={filtered.length === 0}>
+            <Download className="h-4 w-4 mr-2" />
+            Export CSV
+          </Button>
           <Button variant="outline" onClick={() => setImportOpen(true)}>
             <Upload className="h-4 w-4 mr-2" />
             Bulk Import
@@ -793,6 +862,29 @@ export default function PurchasesPage() {
         onOpenChange={setImportOpen}
         onImported={loadPurchases}
       />
+
+      {/* Wipe Confirm Dialog */}
+      <Dialog open={wipeConfirmOpen} onOpenChange={setWipeConfirmOpen}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle className="text-red-600">Wipe all purchases data?</DialogTitle>
+          </DialogHeader>
+          <p className="text-sm text-muted-foreground py-2">
+            This will permanently delete all purchase records for this account.
+            Master products and channel mappings will not be affected. This cannot be undone.
+          </p>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setWipeConfirmOpen(false)}>Cancel</Button>
+            <Button
+              variant="destructive"
+              onClick={handleWipePurchases}
+              disabled={wiping}
+            >
+              {wiping ? 'Wiping…' : 'Yes, wipe everything'}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   )
 }
