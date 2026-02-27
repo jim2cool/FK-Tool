@@ -90,6 +90,27 @@ export default function CatalogPage() {
   // CSV Import dialog
   const [csvImportOpen, setCsvImportOpen] = useState(false)
 
+  // Wipe data
+  const [wipeConfirmOpen, setWipeConfirmOpen] = useState(false)
+  const [wiping, setWiping] = useState(false)
+
+  async function handleWipe() {
+    setWiping(true)
+    try {
+      const res = await fetch('/api/catalog/wipe', { method: 'DELETE' })
+      if (!res.ok) {
+        const { error } = await res.json()
+        toast.error(error ?? 'Wipe failed')
+        return
+      }
+      toast.success('All catalog data wiped')
+      setWipeConfirmOpen(false)
+      await loadData()
+    } finally {
+      setWiping(false)
+    }
+  }
+
   // ── Data fetching ───────────────────────────────────────────────────────────
 
   const loadData = useCallback(async () => {
@@ -399,10 +420,19 @@ export default function CatalogPage() {
             Connect master products to platform SKU IDs across channels and accounts
           </p>
         </div>
-        <Button onClick={() => setCsvImportOpen(true)}>
-          <Upload className="h-4 w-4 mr-2" />
-          Bulk Import
-        </Button>
+        <div className="flex items-center gap-2">
+          <Button
+            variant="outline"
+            className="border-red-500 text-red-500 hover:bg-red-50 hover:text-red-600"
+            onClick={() => setWipeConfirmOpen(true)}
+          >
+            Wipe Data
+          </Button>
+          <Button onClick={() => setCsvImportOpen(true)}>
+            <Upload className="h-4 w-4 mr-2" />
+            Bulk Import
+          </Button>
+        </div>
       </div>
 
       {/* Stocked-but-unmapped banner */}
@@ -752,6 +782,29 @@ export default function CatalogPage() {
         onOpenChange={setCsvImportOpen}
         onImported={loadData}
       />
+
+      {/* Wipe Confirm Dialog */}
+      <Dialog open={wipeConfirmOpen} onOpenChange={setWipeConfirmOpen}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle className="text-red-600">Wipe all catalog data?</DialogTitle>
+          </DialogHeader>
+          <p className="text-sm text-muted-foreground py-2">
+            This will permanently delete all master SKUs and channel mappings for this account.
+            Warehouse stock data will not be affected. This cannot be undone.
+          </p>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setWipeConfirmOpen(false)}>Cancel</Button>
+            <Button
+              variant="destructive"
+              onClick={handleWipe}
+              disabled={wiping}
+            >
+              {wiping ? 'Wiping…' : 'Yes, wipe everything'}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   )
 }
