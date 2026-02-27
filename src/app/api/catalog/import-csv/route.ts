@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { getTenantId } from '@/lib/db/tenant'
-import { importCatalogCsv } from '@/lib/importers/sku-mapping-importer'
+import { importCatalogCsv } from '@/lib/importers/catalog-import-server'
 
 export async function POST(req: NextRequest) {
   try {

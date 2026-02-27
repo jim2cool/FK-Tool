@@ -1,94 +1,17 @@
-import Papa from 'papaparse'
-import { createClient } from '@/lib/supabase/client'
-
-// ── Fixed column names ────────────────────────────────────────────────────────
-
-export const COL_MASTER   = 'Master Product/SKU'
-export const COL_VARIANT  = 'Variant Name'
-export const COL_CHANNEL  = 'Channel'
-export const COL_ACCOUNT  = 'Account'
-export const COL_SKU_ID   = 'SKU ID'
-
-export const REQUIRED_COLUMNS = [COL_MASTER, COL_CHANNEL, COL_ACCOUNT, COL_SKU_ID] as const
-
-// ── Types ─────────────────────────────────────────────────────────────────────
-
-export interface ParsedRow {
-  rowIndex: number   // 1-based spreadsheet row (header = 1, first data row = 2)
-  master: string
-  variant: string    // empty string if not provided
-  channel: string
-  account: string
-  skuId: string
-  error?: string     // present when row is invalid
-}
-
-export interface ImportResult {
-  created: number
-  updated: number
-  skipped: number
-  errors: Array<{ row: number; reason: string }>
-}
-
-// ── CLIENT-SIDE parse ─────────────────────────────────────────────────────────
-
-export function parseCatalogCsv(csvText: string): ParsedRow[] {
-  const { data } = Papa.parse<Record<string, string>>(csvText, {
-    header: true,
-    skipEmptyLines: true,
-    transformHeader: (h) => h.trim(),
-    transform: (v) => v.trim(),
-  })
-
-  const rows: ParsedRow[] = []
-
-  for (let i = 0; i < data.length; i++) {
-    const raw = data[i]
-    const rowIndex = i + 2 // header is row 1, first data row is row 2
-
-    // Silently skip comment rows (first value starts with '#')
-    const firstValue = Object.values(raw)[0] ?? ''
-    if (firstValue.startsWith('#')) continue
-
-    const master  = raw[COL_MASTER]  ?? ''
-    const variant = raw[COL_VARIANT] ?? ''
-    const channel = raw[COL_CHANNEL] ?? ''
-    const account = raw[COL_ACCOUNT] ?? ''
-    const skuId   = raw[COL_SKU_ID]  ?? ''
-
-    // Validate required fields
-    const missing: string[] = []
-    if (!master)  missing.push(COL_MASTER)
-    if (!channel) missing.push(COL_CHANNEL)
-    if (!account) missing.push(COL_ACCOUNT)
-    if (!skuId)   missing.push(COL_SKU_ID)
-
-    if (missing.length > 0) {
-      rows.push({
-        rowIndex,
-        master,
-        variant,
-        channel,
-        account,
-        skuId,
-        error: `Missing required fields: ${missing.join(', ')}`,
-      })
-      continue
-    }
-
-    rows.push({ rowIndex, master, variant, channel, account, skuId })
-  }
-
-  return rows
-}
-
-// ── SERVER-SIDE import ────────────────────────────────────────────────────────
+/**
+ * Server-only catalog importer.
+ * Uses the server Supabase client (next/headers) — do NOT import this from client components.
+ * The client-safe parser (parseCatalogCsv) stays in sku-mapping-importer.ts.
+ */
+import { createClient } from '@/lib/supabase/server'
+import { parseCatalogCsv } from './sku-mapping-importer'
+import type { ImportResult } from './sku-mapping-importer'
 
 export async function importCatalogCsv(
   csvText: string,
   tenantId: string
 ): Promise<ImportResult> {
-  const supabase = createClient()
+  const supabase = await createClient()
 
   // Load all marketplace accounts for this tenant
   const { data: accounts, error: accountsErr } = await supabase
