@@ -1,25 +1,26 @@
-import { createClient } from '@/lib/supabase/server'
-import { importSkuMappingCsv, type CsvColumnMapping } from '@/lib/importers/sku-mapping-importer'
-import { NextResponse } from 'next/server'
+import { NextRequest, NextResponse } from 'next/server'
+import { getTenantId } from '@/lib/db/tenant'
+import { importCatalogCsv } from '@/lib/importers/sku-mapping-importer'
 
-export async function POST(request: Request) {
-  const supabase = await createClient()
-  const { data: { user } } = await supabase.auth.getUser()
-  if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
-
+export async function POST(req: NextRequest) {
   try {
-    const body = await request.json() as { csv?: string; mapping?: CsvColumnMapping }
+    const tenantId = await getTenantId()
 
-    if (!body.csv || typeof body.csv !== 'string') {
-      return NextResponse.json({ error: 'Missing csv field' }, { status: 400 })
-    }
-    if (!body.mapping?.master_sku_name) {
-      return NextResponse.json({ error: 'Missing or invalid mapping' }, { status: 400 })
+    const body = await req.json()
+    const { csv } = body as { csv: string }
+
+    if (!csv || typeof csv !== 'string') {
+      return NextResponse.json({ error: 'csv field is required' }, { status: 400 })
     }
 
-    const result = await importSkuMappingCsv(body.csv, body.mapping)
+    const result = await importCatalogCsv(csv, tenantId)
     return NextResponse.json(result)
   } catch (e: unknown) {
-    return NextResponse.json({ error: (e as Error).message }, { status: 500 })
+    const msg = (e as Error).message
+    if (msg === 'Unauthorized') {
+      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+    }
+    console.error('[import-csv] error:', e)
+    return NextResponse.json({ error: msg }, { status: 500 })
   }
 }
