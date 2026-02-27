@@ -33,3 +33,33 @@ export async function DELETE(request: Request) {
     return NextResponse.json({ error: (e as Error).message }, { status: 500 })
   }
 }
+
+export async function PATCH(request: Request) {
+  try {
+    const tenantId = await getTenantId()
+    const supabase = await createClient()
+    const { id, platform, platform_sku, marketplace_account_id }:
+      { id: string; platform: string; platform_sku: string; marketplace_account_id: string } =
+      await request.json()
+
+    if (!id || !platform || !platform_sku || !marketplace_account_id) {
+      return NextResponse.json(
+        { error: 'id, platform, platform_sku, marketplace_account_id required' },
+        { status: 400 },
+      )
+    }
+
+    const { data, error } = await supabase
+      .from('sku_mappings')
+      .update({ platform, platform_sku, marketplace_account_id })
+      .eq('id', id)
+      .eq('tenant_id', tenantId)
+      .select()
+      .single()
+
+    if (error) throw error
+    return NextResponse.json(data)
+  } catch (e: unknown) {
+    return NextResponse.json({ error: (e as Error).message }, { status: 500 })
+  }
+}
