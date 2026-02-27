@@ -7,7 +7,6 @@ import { Badge } from '@/components/ui/badge'
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
-// @ts-ignore — CsvImportDialog is being rewritten in a parallel task
 import { CsvImportDialog } from '@/components/catalog/CsvImportDialog'
 import { toast } from 'sonner'
 import { AlertTriangle, Pencil, Upload, X } from 'lucide-react'
