@@ -2,30 +2,35 @@ import { createClient } from '@/lib/supabase/server'
 import { getTenantId } from '@/lib/db/tenant'
 import { NextResponse } from 'next/server'
 
+function calcTotalCogs(unitPurchasePrice: number, packagingCost: number, otherCost: number, qty: number) {
+  return (unitPurchasePrice + packagingCost + otherCost) * qty
+}
+
 export async function GET(request: Request) {
   try {
     const tenantId = await getTenantId()
     const supabase = await createClient()
     const { searchParams } = new URL(request.url)
-    const warehouseId = searchParams.get('warehouse_id')
-    const masterSkuId = searchParams.get('master_sku_id')
-    const from = searchParams.get('from')
-    const to = searchParams.get('to')
+    const warehouseId  = searchParams.get('warehouse_id')
+    const masterSkuId  = searchParams.get('master_sku_id')
+    const from         = searchParams.get('from')
+    const to           = searchParams.get('to')
+    const gstRateSlab  = searchParams.get('gst_rate_slab')
+    const taxPaid      = searchParams.get('tax_paid') // 'true' | 'false' | null
 
     let query = supabase
       .from('purchases')
-      .select(`
-        *,
-        master_skus(id, name),
-        warehouses(id, name)
-      `)
+      .select(`*, master_skus(id, name, parent_id), warehouses(id, name)`)
       .eq('tenant_id', tenantId)
       .order('purchase_date', { ascending: false })
+      .order('created_at', { ascending: false })
 
-    if (warehouseId) query = query.eq('warehouse_id', warehouseId)
-    if (masterSkuId) query = query.eq('master_sku_id', masterSkuId)
-    if (from) query = query.gte('purchase_date', from)
-    if (to) query = query.lte('purchase_date', to)
+    if (warehouseId)  query = query.eq('warehouse_id', warehouseId)
+    if (masterSkuId)  query = query.eq('master_sku_id', masterSkuId)
+    if (from)         query = query.gte('purchase_date', from)
+    if (to)           query = query.lte('purchase_date', to)
+    if (gstRateSlab)  query = query.eq('gst_rate_slab', gstRateSlab)
+    if (taxPaid !== null) query = query.eq('tax_paid', taxPaid === 'true')
 
     const { data, error } = await query
     if (error) throw error
@@ -41,19 +46,21 @@ export async function POST(request: Request) {
     const supabase = await createClient()
     const body = await request.json()
     const {
-      master_sku_id,
-      warehouse_id,
-      quantity,
-      unit_cost,
-      packaging_cost,
-      other_cost,
-      supplier,
-      purchase_date,
-      received_date,
+      master_sku_id, warehouse_id, quantity,
+      unit_purchase_price, packaging_cost, other_cost,
+      supplier, purchase_date, received_date,
+      hsn_code, gst_rate_slab, tax_paid, invoice_number,
     } = body
 
     if (!quantity || quantity <= 0) throw new Error('Quantity must be greater than 0')
-    if (unit_cost < 0) throw new Error('Unit cost cannot be negative')
+    if ((unit_purchase_price ?? 0) < 0) throw new Error('Unit purchase price cannot be negative')
+
+    const total_cogs = calcTotalCogs(
+      unit_purchase_price ?? 0,
+      packaging_cost ?? 0,
+      other_cost ?? 0,
+      quantity
+    )
 
     const { data, error } = await supabase
       .from('purchases')
@@ -62,18 +69,19 @@ export async function POST(request: Request) {
         master_sku_id,
         warehouse_id,
         quantity,
-        unit_cost: unit_cost ?? 0,
+        unit_purchase_price: unit_purchase_price ?? 0,
         packaging_cost: packaging_cost ?? 0,
         other_cost: other_cost ?? 0,
+        total_cogs,
         supplier: supplier || null,
         purchase_date,
         received_date: received_date || null,
+        hsn_code: hsn_code || null,
+        gst_rate_slab: gst_rate_slab || '18%',
+        tax_paid: tax_paid ?? false,
+        invoice_number: invoice_number || null,
       })
-      .select(`
-        *,
-        master_skus(id, name),
-        warehouses(id, name)
-      `)
+      .select(`*, master_skus(id, name, parent_id), warehouses(id, name)`)
       .single()
 
     if (error) throw error
@@ -89,19 +97,20 @@ export async function PATCH(request: Request) {
     const supabase = await createClient()
     const body = await request.json()
     const {
-      id,
-      master_sku_id,
-      warehouse_id,
-      quantity,
-      unit_cost,
-      packaging_cost,
-      other_cost,
-      supplier,
-      purchase_date,
-      received_date,
+      id, master_sku_id, warehouse_id, quantity,
+      unit_purchase_price, packaging_cost, other_cost,
+      supplier, purchase_date, received_date,
+      hsn_code, gst_rate_slab, tax_paid, invoice_number,
     } = body
 
     if (!quantity || quantity <= 0) throw new Error('Quantity must be greater than 0')
+
+    const total_cogs = calcTotalCogs(
+      unit_purchase_price ?? 0,
+      packaging_cost ?? 0,
+      other_cost ?? 0,
+      quantity
+    )
 
     const { data, error } = await supabase
       .from('purchases')
@@ -109,20 +118,21 @@ export async function PATCH(request: Request) {
         master_sku_id,
         warehouse_id,
         quantity,
-        unit_cost: unit_cost ?? 0,
+        unit_purchase_price: unit_purchase_price ?? 0,
         packaging_cost: packaging_cost ?? 0,
         other_cost: other_cost ?? 0,
+        total_cogs,
         supplier: supplier || null,
         purchase_date,
         received_date: received_date || null,
+        hsn_code: hsn_code || null,
+        gst_rate_slab: gst_rate_slab || '18%',
+        tax_paid: tax_paid ?? false,
+        invoice_number: invoice_number || null,
       })
       .eq('id', id)
       .eq('tenant_id', tenantId)
-      .select(`
-        *,
-        master_skus(id, name),
-        warehouses(id, name)
-      `)
+      .select(`*, master_skus(id, name, parent_id), warehouses(id, name)`)
       .single()
 
     if (error) throw error
