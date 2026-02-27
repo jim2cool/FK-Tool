@@ -10,9 +10,19 @@ import { Badge } from '@/components/ui/badge'
 import { Separator } from '@/components/ui/separator'
 import { toast } from 'sonner'
 import { Upload, CheckCircle2, AlertCircle, ChevronDown, ChevronRight, Plus, X, Download } from 'lucide-react'
-import type { CsvColumnMapping } from '@/lib/importers/sku-mapping-importer'
-
 // ─── Types ────────────────────────────────────────────────────────────────────
+
+/** Local column-mapping type used by the legacy mapping-step dialog. */
+interface CsvColumnMapping {
+  master_sku_name: string
+  flipkart_sku: string | null
+  amazon_sku: string | null
+  d2c_sku: string | null
+  description: string | null
+  parent_sku_name: string | null
+  variant_attr_cols: Array<{ csv_col: string; attr_key: string }>
+  account_cols: Array<{ csv_col: string; marketplace_account_id: string; platform: string }>
+}
 
 type Step = 'idle' | 'mapping' | 'importing' | 'results'
 

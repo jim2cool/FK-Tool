@@ -1,250 +1,280 @@
 import Papa from 'papaparse'
-import { createClient } from '@/lib/supabase/server'
-import { getTenantId } from '@/lib/db/tenant'
+import { createClient } from '@/lib/supabase/client'
 
-/** Maps our internal field names to the user's actual CSV column headers.
- *  null means "skip this field". */
-export interface CsvColumnMapping {
-  master_sku_name: string        // required — never null
-  flipkart_sku: string | null    // legacy flat column (no account)
-  amazon_sku: string | null      // legacy flat column (no account)
-  d2c_sku: string | null         // legacy flat column (no account)
-  description: string | null
-  parent_sku_name: string | null
-  variant_attr_cols: Array<{ csv_col: string; attr_key: string }>
-  /** Per-account column mappings: each entry maps a CSV column to a specific marketplace account */
-  account_cols: Array<{ csv_col: string; marketplace_account_id: string; platform: string }>
+// ── Fixed column names ────────────────────────────────────────────────────────
+
+export const COL_MASTER   = 'Master Product/SKU'
+export const COL_VARIANT  = 'Variant Name'
+export const COL_CHANNEL  = 'Channel'
+export const COL_ACCOUNT  = 'Account'
+export const COL_SKU_ID   = 'SKU ID'
+
+export const REQUIRED_COLUMNS = [COL_MASTER, COL_CHANNEL, COL_ACCOUNT, COL_SKU_ID] as const
+
+// ── Types ─────────────────────────────────────────────────────────────────────
+
+export interface ParsedRow {
+  rowIndex: number   // 1-based spreadsheet row (header = 1, first data row = 2)
+  master: string
+  variant: string    // empty string if not provided
+  channel: string
+  account: string
+  skuId: string
+  error?: string     // present when row is invalid
 }
 
 export interface ImportResult {
   created: number
   updated: number
-  failed: number
-  errors: Array<{ row: number; sku: string; message: string }>
+  skipped: number
+  errors: Array<{ row: number; reason: string }>
 }
 
-export async function importSkuMappingCsv(
-  csvText: string,
-  mapping: CsvColumnMapping
-): Promise<ImportResult> {
-  const tenantId = await getTenantId()
-  const supabase = await createClient()
+// ── CLIENT-SIDE parse ─────────────────────────────────────────────────────────
+
+export function parseCatalogCsv(csvText: string): ParsedRow[] {
   const { data } = Papa.parse<Record<string, string>>(csvText, {
     header: true,
     skipEmptyLines: true,
+    transformHeader: (h) => h.trim(),
+    transform: (v) => v.trim(),
   })
 
-  let created = 0
-  let updated = 0
-  let failed = 0
-  const errors: ImportResult['errors'] = []
+  const rows: ParsedRow[] = []
 
   for (let i = 0; i < data.length; i++) {
-    const row = data[i]
-    const rowNum = i + 2 // 1-indexed, +1 for header row
+    const raw = data[i]
+    const rowIndex = i + 2 // header is row 1, first data row is row 2
 
-    const variantSkuName = row[mapping.master_sku_name]?.trim()
-    // Silently skip blank rows and comment rows (starting with #)
-    if (!variantSkuName || variantSkuName.startsWith('#')) {
-      if (!variantSkuName) {
-        failed++
-        errors.push({ row: rowNum, sku: '(blank)', message: 'Master SKU Name is empty' })
-      }
+    // Silently skip comment rows (first value starts with '#')
+    const firstValue = Object.values(raw)[0] ?? ''
+    if (firstValue.startsWith('#')) continue
+
+    const master  = raw[COL_MASTER]  ?? ''
+    const variant = raw[COL_VARIANT] ?? ''
+    const channel = raw[COL_CHANNEL] ?? ''
+    const account = raw[COL_ACCOUNT] ?? ''
+    const skuId   = raw[COL_SKU_ID]  ?? ''
+
+    // Validate required fields
+    const missing: string[] = []
+    if (!master)  missing.push(COL_MASTER)
+    if (!channel) missing.push(COL_CHANNEL)
+    if (!account) missing.push(COL_ACCOUNT)
+    if (!skuId)   missing.push(COL_SKU_ID)
+
+    if (missing.length > 0) {
+      rows.push({
+        rowIndex,
+        master,
+        variant,
+        channel,
+        account,
+        skuId,
+        error: `Missing required fields: ${missing.join(', ')}`,
+      })
       continue
     }
 
-    const description = mapping.description ? row[mapping.description]?.trim() || null : null
-    const parentSkuName = mapping.parent_sku_name ? row[mapping.parent_sku_name]?.trim() || null : null
+    rows.push({ rowIndex, master, variant, channel, account, skuId })
+  }
 
-    // ── Variant import path ─────────────────────────────────────────────────
-    if (parentSkuName) {
-      // Upsert parent product (no platform mappings on parent)
-      let parentId: string
+  return rows
+}
+
+// ── SERVER-SIDE import ────────────────────────────────────────────────────────
+
+export async function importCatalogCsv(
+  csvText: string,
+  tenantId: string
+): Promise<ImportResult> {
+  const supabase = createClient()
+
+  // Load all marketplace accounts for this tenant
+  const { data: accounts, error: accountsErr } = await supabase
+    .from('marketplace_accounts')
+    .select('id, platform, account_name')
+    .eq('tenant_id', tenantId)
+
+  if (accountsErr) {
+    return {
+      created: 0,
+      updated: 0,
+      skipped: 0,
+      errors: [{ row: 0, reason: `Failed to load accounts: ${accountsErr.message}` }],
+    }
+  }
+
+  // Build lookup map: "platform_lowercase|account_name_lowercase" → { id, platform }
+  const accountMap = new Map<string, { id: string; platform: string }>()
+  for (const acct of accounts ?? []) {
+    const key = `${acct.platform.toLowerCase()}|${acct.account_name.toLowerCase()}`
+    accountMap.set(key, { id: acct.id, platform: acct.platform })
+  }
+
+  const rows = parseCatalogCsv(csvText)
+
+  let created = 0
+  let updated = 0
+  let skipped = 0
+  const errors: ImportResult['errors'] = []
+
+  for (const row of rows) {
+    // Skip rows that failed parse validation
+    if (row.error) {
+      skipped++
+      errors.push({ row: row.rowIndex, reason: row.error })
+      continue
+    }
+
+    // Validate channel / account pair
+    const accountKey = `${row.channel.toLowerCase()}|${row.account.toLowerCase()}`
+    const accountEntry = accountMap.get(accountKey)
+    if (!accountEntry) {
+      skipped++
+      errors.push({
+        row: row.rowIndex,
+        reason: `'${row.channel} / ${row.account}' not found in Settings`,
+      })
+      continue
+    }
+
+    const { id: marketplaceAccountId, platform } = accountEntry
+
+    // ── Upsert master_sku ──────────────────────────────────────────────────
+    let masterSkuId: string
+
+    if (row.variant) {
+      // Has a variant: upsert parent first, then upsert variant under it
       const { data: existingParent } = await supabase
         .from('master_skus')
         .select('id')
         .eq('tenant_id', tenantId)
-        .eq('name', parentSkuName)
+        .eq('name', row.master)
         .is('parent_id', null)
-        .single()
+        .maybeSingle()
+
+      let parentId: string
 
       if (existingParent) {
         parentId = existingParent.id
       } else {
         const { data: newParent, error: parentErr } = await supabase
           .from('master_skus')
-          .insert({ tenant_id: tenantId, name: parentSkuName })
+          .insert({ tenant_id: tenantId, name: row.master })
           .select('id')
           .single()
+
         if (parentErr || !newParent) {
-          failed++
-          errors.push({ row: rowNum, sku: variantSkuName, message: `Failed to create parent "${parentSkuName}": ${parentErr?.message}` })
+          skipped++
+          errors.push({
+            row: row.rowIndex,
+            reason: `Failed to create parent "${row.master}": ${parentErr?.message ?? 'unknown error'}`,
+          })
           continue
         }
         parentId = newParent.id
       }
 
-      // Build variant_attributes from mapped columns
-      const variantAttributes: Record<string, string> = {}
-      for (const { csv_col, attr_key } of (mapping.variant_attr_cols ?? [])) {
-        const val = row[csv_col]?.trim()
-        if (val && attr_key.trim()) variantAttributes[attr_key.trim()] = val
-      }
-
-      // Upsert variant under parent
+      // Upsert variant
       const { data: existingVariant } = await supabase
         .from('master_skus')
         .select('id')
         .eq('tenant_id', tenantId)
-        .eq('name', variantSkuName)
+        .eq('name', row.variant)
         .eq('parent_id', parentId)
-        .single()
+        .maybeSingle()
 
-      let skuId: string
       if (existingVariant) {
-        if (description !== null || Object.keys(variantAttributes).length > 0) {
-          const upd: Record<string, unknown> = {}
-          if (description !== null) upd.description = description
-          if (Object.keys(variantAttributes).length > 0) upd.variant_attributes = variantAttributes
-          await supabase.from('master_skus').update(upd).eq('id', existingVariant.id)
-        }
-        skuId = existingVariant.id
-        updated++
+        masterSkuId = existingVariant.id
       } else {
-        const { data: newVariant, error: vErr } = await supabase
+        const { data: newVariant, error: variantErr } = await supabase
           .from('master_skus')
-          .insert({
-            tenant_id: tenantId,
-            name: variantSkuName,
-            description,
-            parent_id: parentId,
-            variant_attributes: Object.keys(variantAttributes).length > 0 ? variantAttributes : null,
-          })
+          .insert({ tenant_id: tenantId, name: row.variant, parent_id: parentId })
           .select('id')
           .single()
-        if (vErr || !newVariant) {
-          failed++
-          errors.push({ row: rowNum, sku: variantSkuName, message: vErr?.message ?? 'Insert failed' })
+
+        if (variantErr || !newVariant) {
+          skipped++
+          errors.push({
+            row: row.rowIndex,
+            reason: `Failed to create variant "${row.variant}": ${variantErr?.message ?? 'unknown error'}`,
+          })
           continue
         }
-        skuId = newVariant.id
-        created++
+        masterSkuId = newVariant.id
       }
+    } else {
+      // Flat master SKU (no variant)
+      const { data: existingMaster } = await supabase
+        .from('master_skus')
+        .select('id')
+        .eq('tenant_id', tenantId)
+        .eq('name', row.master)
+        .is('parent_id', null)
+        .maybeSingle()
 
-      // Upsert platform mappings onto the variant (legacy flat columns + per-account columns)
-      const platformCols = [
-        { platform: 'flipkart' as const, col: mapping.flipkart_sku, accountId: null as string | null },
-        { platform: 'amazon' as const, col: mapping.amazon_sku, accountId: null as string | null },
-        { platform: 'd2c' as const, col: mapping.d2c_sku, accountId: null as string | null },
-        ...(mapping.account_cols ?? []).map(ac => ({
-          platform: ac.platform as 'flipkart' | 'amazon' | 'd2c',
-          col: ac.csv_col,
-          accountId: ac.marketplace_account_id,
-        })),
-      ]
-      for (const { platform, col, accountId } of platformCols) {
-        if (!col) continue
-        const platformSku = row[col]?.trim()
-        if (!platformSku) continue
-        const { data: existingMapping } = await supabase
-          .from('sku_mappings').select('master_sku_id')
-          .eq('tenant_id', tenantId).eq('platform', platform).eq('platform_sku', platformSku).single()
-        if (existingMapping && existingMapping.master_sku_id !== skuId) {
-          errors.push({ row: rowNum, sku: variantSkuName, message: `${platform} SKU "${platformSku}" already mapped to a different SKU` })
+      if (existingMaster) {
+        masterSkuId = existingMaster.id
+      } else {
+        const { data: newMaster, error: masterErr } = await supabase
+          .from('master_skus')
+          .insert({ tenant_id: tenantId, name: row.master })
+          .select('id')
+          .single()
+
+        if (masterErr || !newMaster) {
+          skipped++
+          errors.push({
+            row: row.rowIndex,
+            reason: `Failed to create master SKU "${row.master}": ${masterErr?.message ?? 'unknown error'}`,
+          })
           continue
         }
-        const { error } = await supabase.from('sku_mappings').upsert(
-          {
-            tenant_id: tenantId, master_sku_id: skuId, platform, platform_sku: platformSku,
-            ...(accountId ? { marketplace_account_id: accountId } : {}),
-          },
-          { onConflict: 'tenant_id,platform,platform_sku' }
-        )
-        if (error) {
-          failed++
-          errors.push({ row: rowNum, sku: variantSkuName, message: `${platform} mapping: ${error.message}` })
-        }
+        masterSkuId = newMaster.id
       }
-
-      continue  // done with this row
     }
 
-    // ── Flat SKU import path (existing logic, unchanged) ───────────────────
-    const masterSkuName = variantSkuName
-
-    const { data: existing } = await supabase
-      .from('master_skus')
+    // ── Upsert sku_mapping ─────────────────────────────────────────────────
+    const { data: existingMapping } = await supabase
+      .from('sku_mappings')
       .select('id')
       .eq('tenant_id', tenantId)
-      .eq('name', masterSkuName)
-      .is('parent_id', null)
-      .single()
+      .eq('platform', platform)
+      .eq('platform_sku', row.skuId)
+      .maybeSingle()
 
-    let skuId: string
+    if (existingMapping) {
+      const { error: updateErr } = await supabase
+        .from('sku_mappings')
+        .update({ master_sku_id: masterSkuId, marketplace_account_id: marketplaceAccountId })
+        .eq('id', existingMapping.id)
 
-    if (existing) {
-      if (description !== null) {
-        const { error: updateError } = await supabase
-          .from('master_skus')
-          .update({ description })
-          .eq('id', existing.id)
-        if (updateError) {
-          errors.push({ row: rowNum, sku: masterSkuName, message: `Description update failed: ${updateError.message}` })
-        }
+      if (updateErr) {
+        skipped++
+        errors.push({ row: row.rowIndex, reason: `Mapping update failed: ${updateErr.message}` })
+        continue
       }
-      skuId = existing.id
       updated++
     } else {
-      const { data: inserted, error: insertError } = await supabase
-        .from('master_skus')
-        .insert({ tenant_id: tenantId, name: masterSkuName, description })
-        .select('id')
-        .single()
+      const { error: insertErr } = await supabase
+        .from('sku_mappings')
+        .insert({
+          tenant_id: tenantId,
+          master_sku_id: masterSkuId,
+          platform,
+          platform_sku: row.skuId,
+          marketplace_account_id: marketplaceAccountId,
+        })
 
-      if (insertError || !inserted) {
-        failed++
-        errors.push({ row: rowNum, sku: masterSkuName, message: insertError?.message ?? 'Insert failed' })
+      if (insertErr) {
+        skipped++
+        errors.push({ row: row.rowIndex, reason: `Mapping insert failed: ${insertErr.message}` })
         continue
       }
-      skuId = inserted.id
       created++
-    }
-
-    const platformCols = [
-      { platform: 'flipkart' as const, col: mapping.flipkart_sku, accountId: null as string | null },
-      { platform: 'amazon' as const, col: mapping.amazon_sku, accountId: null as string | null },
-      { platform: 'd2c' as const, col: mapping.d2c_sku, accountId: null as string | null },
-      ...(mapping.account_cols ?? []).map(ac => ({
-        platform: ac.platform as 'flipkart' | 'amazon' | 'd2c',
-        col: ac.csv_col,
-        accountId: ac.marketplace_account_id,
-      })),
-    ]
-    for (const { platform, col, accountId } of platformCols) {
-      if (!col) continue
-      const platformSku = row[col]?.trim()
-      if (!platformSku) continue
-      const { data: existingMapping } = await supabase
-        .from('sku_mappings').select('master_sku_id')
-        .eq('tenant_id', tenantId).eq('platform', platform).eq('platform_sku', platformSku).single()
-      if (existingMapping && existingMapping.master_sku_id !== skuId) {
-        failed++
-        errors.push({ row: rowNum, sku: masterSkuName, message: `${platform} SKU "${platformSku}" is already mapped to a different master SKU` })
-        continue
-      }
-      const { error } = await supabase.from('sku_mappings').upsert(
-        {
-          tenant_id: tenantId, master_sku_id: skuId, platform, platform_sku: platformSku,
-          ...(accountId ? { marketplace_account_id: accountId } : {}),
-        },
-        { onConflict: 'tenant_id,platform,platform_sku' }
-      )
-      if (error) {
-        failed++
-        errors.push({ row: rowNum, sku: masterSkuName, message: `${platform} mapping: ${error.message}` })
-      }
     }
   }
 
-  return { created, updated, failed, errors }
+  return { created, updated, skipped, errors }
 }
