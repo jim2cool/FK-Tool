@@ -43,12 +43,15 @@ Every table has a `tenant_id` column. Always filter by `tenant_id` in every quer
 `getTenantId()` (from `@/lib/db/tenant`) reads it from `user_profiles` via the logged-in user.
 
 ### Generated / Computed columns — NEVER insert these
+
+> ⚠️ `total_cogs`, `packaging_cost`, `other_cost` are being **dropped** in the COGS Phase 1 migration (see `docs/plans/2026-02-28-cogs-system.md`). Once that migration runs, these columns will no longer exist on `purchases`.
+
+Until that migration runs, do NOT insert these:
 | Column | Table | Definition |
 |--------|-------|------------|
 | `total_cogs` | `purchases` | `GENERATED ALWAYS AS (unit_purchase_price + packaging_cost + other_cost)` |
 
-Attempting to INSERT or UPDATE these columns will throw:
-`"cannot insert a non-DEFAULT value into column total_cogs"`
+`"cannot insert a non-DEFAULT value into column total_cogs"` = you tried to insert this generated column.
 
 ### master_skus — Parent/Variant structure
 - Flat products: `parent_id IS NULL`
@@ -62,9 +65,16 @@ Attempting to INSERT or UPDATE these columns will throw:
 ### purchases table key columns
 ```
 id, tenant_id, master_sku_id, warehouse_id,
-quantity, unit_purchase_price, packaging_cost, other_cost,
-total_cogs (GENERATED), supplier, purchase_date, received_date,
+quantity, unit_purchase_price,
+supplier, purchase_date, received_date,
 hsn_code, gst_rate_slab, tax_paid, invoice_number
+```
+> `packaging_cost`, `other_cost`, `total_cogs` have been/are being removed (COGS Phase 1). Do not reference them.
+
+### master_skus — COGS columns (added in COGS Phase 1)
+```
+shrinkage_rate  NUMERIC(5,4)  DEFAULT 0.02   -- per-SKU shrinkage (2% default)
+delivery_rate   NUMERIC(5,4)  DEFAULT 1.0    -- historical delivered÷dispatched rate
 ```
 
 ---
@@ -85,6 +95,54 @@ hsn_code, gst_rate_slab, tax_paid, invoice_number
 | Supabase server client | `src/lib/supabase/server.ts` |
 | Supabase browser client | `src/lib/supabase/client.ts` |
 | DB types | `src/types/database.ts` |
+| COGS implementation plan | `docs/plans/2026-02-28-cogs-system.md` |
+| COGS calculation engine (to create) | `src/lib/cogs/calculate.ts` |
+| COGS API (to create) | `src/app/api/cogs/route.ts` |
+| Freight invoices API (to create) | `src/app/api/freight-invoices/route.ts` |
+| Packaging APIs (to create) | `src/app/api/packaging/` |
+| COGS page (to create) | `src/app/(dashboard)/cogs/page.tsx` |
+| Invoices page (to create) | `src/app/(dashboard)/invoices/page.tsx` |
+| Packaging page (to create) | `src/app/(dashboard)/packaging/page.tsx` |
+
+---
+
+## 💰 COGS System — Architecture (In Progress)
+
+See full plan: `docs/plans/2026-02-28-cogs-system.md`
+
+**Formula (locked in):**
+```
+Purchase COGS/unit (WAC) = weighted avg Rate/Unit (ex-GST) across all lots
+                         + allocated inward freight/unit
+                           [freight × (sku_lot_value / total_lot_value) ÷ sku_qty]
+
+Dispatch COGS/unit       = sum(material_cost × qty_per_dispatch) ÷ delivery_rate
+
+Shrinkage/unit           = shrinkage_rate × Purchase COGS/unit  (default 2%)
+
+Full COGS/unit           = Purchase COGS + Dispatch COGS + Shrinkage
+```
+
+**GST rule:** User is GST-registered. GST is EXCLUDED from COGS. "GST Not Charged" is tracked separately.
+
+**Four phases:**
+- Phase 1: Drop `packaging_cost`/`other_cost`/`total_cogs` from purchases; add `shrinkage_rate`/`delivery_rate` to `master_skus`
+- Phase 2: `freight_invoices` table + Invoices page (Freight tab)
+- Phase 3: `packaging_materials`, `sku_packaging_config`, `packaging_purchases` tables + Packaging page
+- Phase 4: COGS calculation engine + COGS API + COGS page
+
+**New tables to be created:**
+```
+freight_invoices        — inward freight per purchase invoice
+packaging_materials     — catalog of packaging material types (cost/unit)
+sku_packaging_config    — which materials each SKU uses + qty_per_dispatch
+packaging_purchases     — bulk purchases of packaging materials
+```
+
+**New nav order (final target):**
+```
+Dashboard → Master Catalog → Purchases → Invoices → Packaging → COGS → Import Data → Inventory & P&L → Settings
+```
 
 ---
 
@@ -95,6 +153,12 @@ hsn_code, gst_rate_slab, tax_paid, invoice_number
 2. **Date formats:** The template produces `M/DD/YYYY` (e.g. `6/27/2025`) but Indian users may enter `DD/MM/YYYY`. The parser auto-detects: if `parts[1] > 12` → first part is month (M/DD/YYYY); otherwise assume `DD/MM/YYYY`.
 
 3. **Warehouse column:** The **catalog** CSV template intentionally has no Warehouse column — warehouse data lives in purchases, not catalog mappings.
+
+4. **Variant dropdown bug (fixed):** `/api/catalog/master-skus` returns a **nested** response. The purchases page must flatMap variants:
+   ```ts
+   skus.flatMap(sku => [sku, ...(sku.variants ?? [])])
+   ```
+   Without this, the variant dropdown is empty → purchases save against parent ID → catalog never shows warehouse data.
 
 ---
 
