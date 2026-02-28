@@ -34,9 +34,6 @@ interface Purchase {
   warehouse_id: string
   quantity: number
   unit_purchase_price: number
-  packaging_cost: number
-  other_cost: number
-  total_cogs: number
   supplier: string | null
   purchase_date: string
   received_date: string | null
@@ -81,8 +78,6 @@ const emptyForm = {
   warehouse_id:        '',
   quantity:            '',
   unit_purchase_price: '',
-  packaging_cost:      '',
-  other_cost:          '',
   supplier:            '',
   purchase_date:       format(new Date(), 'yyyy-MM-dd'),
   received_date:       '',
@@ -280,8 +275,6 @@ export default function PurchasesPage() {
       warehouse_id:        p.warehouse_id,
       quantity:            String(p.quantity),
       unit_purchase_price: String(p.unit_purchase_price),
-      packaging_cost:      String(p.packaging_cost),
-      other_cost:          String(p.other_cost),
       supplier:            p.supplier ?? '',
       purchase_date:       p.purchase_date,
       received_date:       p.received_date ?? '',
@@ -320,8 +313,6 @@ export default function PurchasesPage() {
         warehouse_id:        form.warehouse_id,
         quantity:            Number(form.quantity),
         unit_purchase_price: Number(form.unit_purchase_price) || 0,
-        packaging_cost:      Number(form.packaging_cost) || 0,
-        other_cost:          Number(form.other_cost) || 0,
         supplier:            form.supplier || null,
         purchase_date:       form.purchase_date,
         received_date:       form.received_date || null,
@@ -800,22 +791,6 @@ export default function PurchasesPage() {
                 <span>Total amount: <span className="font-semibold text-foreground">₹{fmt(liveCalc.totalAmt)}</span></span>
               </div>
             )}
-
-            {/* Packaging + Other */}
-            <div className="grid grid-cols-2 gap-3">
-              <div className="space-y-1">
-                <Label className="text-xs">Packaging Cost (₹)</Label>
-                <Input type="number" min={0} step="0.01" placeholder="0.00"
-                  value={form.packaging_cost}
-                  onChange={e => setField('packaging_cost', e.target.value)} />
-              </div>
-              <div className="space-y-1">
-                <Label className="text-xs">Other Cost (₹)</Label>
-                <Input type="number" min={0} step="0.01" placeholder="0.00"
-                  value={form.other_cost}
-                  onChange={e => setField('other_cost', e.target.value)} />
-              </div>
-            </div>
 
             {/* HSN + Invoice */}
             <div className="grid grid-cols-2 gap-3">

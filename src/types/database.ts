@@ -41,6 +41,8 @@ export interface MasterSku {
   parent_id: string | null
   variant_attributes: Record<string, string> | null
   is_archived: boolean
+  shrinkage_rate: number   // default 0.02
+  delivery_rate: number    // default 1.0
   created_at: string
 }
 
@@ -60,17 +62,14 @@ export interface Purchase {
   master_sku_id: string
   warehouse_id: string
   quantity: number
-  unit_purchase_price: number   // renamed from unit_cost
-  packaging_cost: number
-  other_cost: number
-  total_cogs: number | null
+  unit_purchase_price: number
   supplier: string | null
   purchase_date: string
   received_date: string | null
-  hsn_code: string | null       // new
-  gst_rate_slab: string | null  // new — e.g. "18%"
-  tax_paid: boolean             // new
-  invoice_number: string | null // new
+  hsn_code: string | null
+  gst_rate_slab: string | null  // e.g. "18%"
+  tax_paid: boolean
+  invoice_number: string | null
   created_at: string
   lot_id: string | null
 }

@@ -43,7 +43,7 @@ export async function POST(request: Request) {
     const body = await request.json()
     const {
       master_sku_id, warehouse_id, quantity,
-      unit_purchase_price, packaging_cost, other_cost,
+      unit_purchase_price,
       supplier, purchase_date, received_date,
       hsn_code, gst_rate_slab, tax_paid, invoice_number,
     } = body
@@ -59,8 +59,6 @@ export async function POST(request: Request) {
         warehouse_id,
         quantity,
         unit_purchase_price: unit_purchase_price ?? 0,
-        packaging_cost: packaging_cost ?? 0,
-        other_cost: other_cost ?? 0,
         supplier: supplier || null,
         purchase_date,
         received_date: received_date || null,
@@ -86,7 +84,7 @@ export async function PATCH(request: Request) {
     const body = await request.json()
     const {
       id, master_sku_id, warehouse_id, quantity,
-      unit_purchase_price, packaging_cost, other_cost,
+      unit_purchase_price,
       supplier, purchase_date, received_date,
       hsn_code, gst_rate_slab, tax_paid, invoice_number,
     } = body
@@ -100,8 +98,6 @@ export async function PATCH(request: Request) {
         warehouse_id,
         quantity,
         unit_purchase_price: unit_purchase_price ?? 0,
-        packaging_cost: packaging_cost ?? 0,
-        other_cost: other_cost ?? 0,
         supplier: supplier || null,
         purchase_date,
         received_date: received_date || null,
