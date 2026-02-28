@@ -1,13 +1,16 @@
 'use client'
 import Link from 'next/link'
 import { usePathname } from 'next/navigation'
-import { LayoutDashboard, Package, ShoppingCart, Upload, BarChart3, Settings } from 'lucide-react'
+import { LayoutDashboard, Package, ShoppingCart, Receipt, Box, Calculator, Upload, BarChart3, Settings } from 'lucide-react'
 import { cn } from '@/lib/utils'
 
 const navItems = [
   { href: '/dashboard', label: 'Dashboard', icon: LayoutDashboard },
   { href: '/catalog', label: 'Master Catalog', icon: Package },
   { href: '/purchases', label: 'Purchases', icon: ShoppingCart },
+  { href: '/invoices', label: 'Invoices', icon: Receipt },
+  { href: '/packaging', label: 'Packaging', icon: Box },
+  { href: '/cogs', label: 'COGS', icon: Calculator },
   { href: '/imports', label: 'Import Data', icon: Upload },
   { href: '/inventory', label: 'Inventory & P&L', icon: BarChart3 },
   { href: '/settings', label: 'Settings', icon: Settings },
