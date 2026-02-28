@@ -156,6 +156,39 @@ export interface FreightInvoice {
   created_at: string
 }
 
+export interface PackagingMaterial {
+  id: string
+  tenant_id: string
+  name: string
+  unit: string
+  unit_cost: number
+  created_at: string
+  updated_at: string
+}
+
+export interface SkuPackagingConfig {
+  id: string
+  tenant_id: string
+  master_sku_id: string
+  packaging_material_id: string
+  qty_per_dispatch: number
+  created_at: string
+}
+
+export interface PackagingPurchase {
+  id: string
+  tenant_id: string
+  packaging_material_id: string
+  invoice_number: string | null
+  quantity: number
+  unit_cost: number
+  tax_paid: boolean
+  gst_rate_slab: string
+  vendor: string | null
+  purchase_date: string
+  created_at: string
+}
+
 export interface Import {
   id: string
   tenant_id: string
