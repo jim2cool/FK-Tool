@@ -142,6 +142,20 @@ export interface SkuFinancialProfile {
   created_at: string
 }
 
+export interface FreightInvoice {
+  id: string
+  tenant_id: string
+  freight_invoice_number: string | null
+  purchase_invoice_number: string
+  total_amount: number
+  tax_paid: boolean
+  gst_rate_slab: string
+  vendor: string | null
+  freight_date: string
+  notes: string | null
+  created_at: string
+}
+
 export interface Import {
   id: string
   tenant_id: string
