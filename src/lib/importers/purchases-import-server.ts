@@ -133,10 +133,7 @@ export async function importPurchasesCsv(
       }
     }
 
-    // Calculate total_cogs (packaging/other = 0 on import)
-    const total_cogs = row.ratePerUnit * row.qty
-
-    // Insert purchase
+    // Insert purchase (total_cogs is GENERATED ALWAYS in DB — do not insert it)
     const { error: insertErr } = await supabase
       .from('purchases')
       .insert({
@@ -147,7 +144,6 @@ export async function importPurchasesCsv(
         unit_purchase_price: row.ratePerUnit,
         packaging_cost: 0,
         other_cost: 0,
-        total_cogs,
         supplier: row.vendorName || null,
         purchase_date: row.date,
         hsn_code: row.hsnCode || null,

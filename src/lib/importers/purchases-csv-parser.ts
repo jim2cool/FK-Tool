@@ -45,8 +45,23 @@ export interface PurchaseImportResult {
 
 // ── Parse ─────────────────────────────────────────────────────────────────────
 
+function stripLabelsRow(csv: string): { text: string; rowOffset: number } {
+  // The template's first row is a labels row ("Mandatory, Optional, …").
+  // Papa.parse(header:true) would consume it as column keys, breaking all lookups.
+  // Strip it so Papa uses the real header row (Receipt Date, Master Product, …).
+  const lines = csv.split(/\r?\n/)
+  if (lines.length > 0) {
+    const first = lines[0].trim()
+    if (first.startsWith('Mandatory') || first.startsWith('Optional')) {
+      return { text: lines.slice(1).join('\n'), rowOffset: 3 }
+    }
+  }
+  return { text: csv, rowOffset: 2 }
+}
+
 export function parsePurchasesCsv(csvText: string): ParsedPurchaseRow[] {
-  const { data } = Papa.parse<Record<string, string>>(csvText, {
+  const { text, rowOffset } = stripLabelsRow(csvText)
+  const { data } = Papa.parse<Record<string, string>>(text, {
     header: true,
     skipEmptyLines: true,
     transformHeader: (h) => h.trim(),
@@ -57,7 +72,7 @@ export function parsePurchasesCsv(csvText: string): ParsedPurchaseRow[] {
 
   for (let i = 0; i < data.length; i++) {
     const raw = data[i]
-    const rowIndex = i + 2 // header row = 1
+    const rowIndex = i + rowOffset // 1-based line number in original file
 
     // Skip comment/reference rows and the labels row
     const firstVal = Object.values(raw)[0] ?? ''
@@ -119,13 +134,23 @@ export function parsePurchasesCsv(csvText: string): ParsedPurchaseRow[] {
       continue
     }
 
-    // Parse date: supports DD/MM/YYYY and YYYY-MM-DD
+    // Parse date: supports DD/MM/YYYY, M/DD/YYYY, and YYYY-MM-DD.
+    // Auto-detect: if parts[1] > 12 it can't be a month → first part is month (M/DD/YYYY).
+    //              otherwise assume DD/MM/YYYY as Indian standard.
     let date = dateRaw
     if (dateRaw.includes('/')) {
       const parts = dateRaw.split('/')
       if (parts.length === 3) {
-        // Assume DD/MM/YYYY per Indian standard
-        date = `${parts[2]}-${parts[1].padStart(2, '0')}-${parts[0].padStart(2, '0')}`
+        const p1 = parseInt(parts[1], 10)
+        let day: string, month: string
+        if (p1 > 12) {
+          // M/DD/YYYY  (e.g. 6/27/2025)
+          month = parts[0]; day = parts[1]
+        } else {
+          // DD/MM/YYYY (e.g. 27/06/2025) — Indian standard
+          day = parts[0]; month = parts[1]
+        }
+        date = `${parts[2]}-${month.padStart(2, '0')}-${day.padStart(2, '0')}`
       }
     }
 

@@ -166,7 +166,11 @@ export default function PurchasesPage() {
       fetch('/api/catalog/master-skus').then(r => r.json()),
       fetch('/api/warehouses').then(r => r.json()),
     ]).then(([s, w]) => {
-      setSkus(Array.isArray(s) ? s : [])
+      // Flatten nested variants so variantOptions can find them by parent_id
+      const flat = Array.isArray(s)
+        ? s.flatMap((sku: MasterSku & { variants?: MasterSku[] }) => [sku, ...(sku.variants ?? [])])
+        : []
+      setSkus(flat)
       setWarehouses(Array.isArray(w) ? w : [])
     }).catch(() => {})
   }, [])

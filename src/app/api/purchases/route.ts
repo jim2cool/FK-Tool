@@ -2,10 +2,6 @@ import { createClient } from '@/lib/supabase/server'
 import { getTenantId } from '@/lib/db/tenant'
 import { NextResponse } from 'next/server'
 
-function calcTotalCogs(unitPurchasePrice: number, packagingCost: number, otherCost: number, qty: number) {
-  return (unitPurchasePrice + packagingCost + otherCost) * qty
-}
-
 export async function GET(request: Request) {
   try {
     const tenantId = await getTenantId()
@@ -55,13 +51,6 @@ export async function POST(request: Request) {
     if (!quantity || quantity <= 0) throw new Error('Quantity must be greater than 0')
     if ((unit_purchase_price ?? 0) < 0) throw new Error('Unit purchase price cannot be negative')
 
-    const total_cogs = calcTotalCogs(
-      unit_purchase_price ?? 0,
-      packaging_cost ?? 0,
-      other_cost ?? 0,
-      quantity
-    )
-
     const { data, error } = await supabase
       .from('purchases')
       .insert({
@@ -72,7 +61,6 @@ export async function POST(request: Request) {
         unit_purchase_price: unit_purchase_price ?? 0,
         packaging_cost: packaging_cost ?? 0,
         other_cost: other_cost ?? 0,
-        total_cogs,
         supplier: supplier || null,
         purchase_date,
         received_date: received_date || null,
@@ -105,13 +93,6 @@ export async function PATCH(request: Request) {
 
     if (!quantity || quantity <= 0) throw new Error('Quantity must be greater than 0')
 
-    const total_cogs = calcTotalCogs(
-      unit_purchase_price ?? 0,
-      packaging_cost ?? 0,
-      other_cost ?? 0,
-      quantity
-    )
-
     const { data, error } = await supabase
       .from('purchases')
       .update({
@@ -121,7 +102,6 @@ export async function PATCH(request: Request) {
         unit_purchase_price: unit_purchase_price ?? 0,
         packaging_cost: packaging_cost ?? 0,
         other_cost: other_cost ?? 0,
-        total_cogs,
         supplier: supplier || null,
         purchase_date,
         received_date: received_date || null,
