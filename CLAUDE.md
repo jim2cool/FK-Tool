@@ -42,16 +42,10 @@ ssh -i ~/.ssh/id_ed25519 -o StrictHostKeyChecking=no root@46.225.117.86 "cd /opt
 Every table has a `tenant_id` column. Always filter by `tenant_id` in every query.
 `getTenantId()` (from `@/lib/db/tenant`) reads it from `user_profiles` via the logged-in user.
 
-### Generated / Computed columns — NEVER insert these
+### Generated / Computed columns — ALREADY DROPPED
 
-> ⚠️ `total_cogs`, `packaging_cost`, `other_cost` are being **dropped** in the COGS Phase 1 migration (see `docs/plans/2026-02-28-cogs-system.md`). Once that migration runs, these columns will no longer exist on `purchases`.
-
-Until that migration runs, do NOT insert these:
-| Column | Table | Definition |
-|--------|-------|------------|
-| `total_cogs` | `purchases` | `GENERATED ALWAYS AS (unit_purchase_price + packaging_cost + other_cost)` |
-
-`"cannot insert a non-DEFAULT value into column total_cogs"` = you tried to insert this generated column.
+> ✅ `total_cogs`, `packaging_cost`, `other_cost` were dropped from `purchases` in COGS Phase 1 (already migrated).
+> **Do NOT reference these columns anywhere** — they no longer exist in the DB or codebase.
 
 ### master_skus — Parent/Variant structure
 - Flat products: `parent_id IS NULL`
@@ -69,7 +63,7 @@ quantity, unit_purchase_price,
 supplier, purchase_date, received_date,
 hsn_code, gst_rate_slab, tax_paid, invoice_number
 ```
-> `packaging_cost`, `other_cost`, `total_cogs` have been/are being removed (COGS Phase 1). Do not reference them.
+> `packaging_cost`, `other_cost`, `total_cogs` were **dropped** in COGS Phase 1. Do not reference them.
 
 ### master_skus — COGS columns (added in COGS Phase 1)
 ```
@@ -95,14 +89,17 @@ delivery_rate   NUMERIC(5,4)  DEFAULT 1.0    -- historical delivered÷dispatched
 | Supabase server client | `src/lib/supabase/server.ts` |
 | Supabase browser client | `src/lib/supabase/client.ts` |
 | DB types | `src/types/database.ts` |
+| App sidebar (nav) | `src/components/layout/AppSidebar.tsx` |
 | COGS implementation plan | `docs/plans/2026-02-28-cogs-system.md` |
+| Freight invoices API | `src/app/api/freight-invoices/route.ts` |
+| Packaging materials API | `src/app/api/packaging/materials/route.ts` |
+| Packaging SKU config API | `src/app/api/packaging/sku-config/route.ts` |
+| Packaging purchases API | `src/app/api/packaging/purchases/route.ts` |
+| Invoices page (Freight tab ✅, Packaging tab 🚧) | `src/app/(dashboard)/invoices/page.tsx` |
+| Packaging page (Materials + SKU Specs ✅) | `src/app/(dashboard)/packaging/page.tsx` |
 | COGS calculation engine (to create) | `src/lib/cogs/calculate.ts` |
 | COGS API (to create) | `src/app/api/cogs/route.ts` |
-| Freight invoices API (to create) | `src/app/api/freight-invoices/route.ts` |
-| Packaging APIs (to create) | `src/app/api/packaging/` |
 | COGS page (to create) | `src/app/(dashboard)/cogs/page.tsx` |
-| Invoices page (to create) | `src/app/(dashboard)/invoices/page.tsx` |
-| Packaging page (to create) | `src/app/(dashboard)/packaging/page.tsx` |
 
 ---
 
@@ -126,23 +123,40 @@ Full COGS/unit           = Purchase COGS + Dispatch COGS + Shrinkage
 **GST rule:** User is GST-registered. GST is EXCLUDED from COGS. "GST Not Charged" is tracked separately.
 
 **Four phases:**
-- Phase 1: Drop `packaging_cost`/`other_cost`/`total_cogs` from purchases; add `shrinkage_rate`/`delivery_rate` to `master_skus`
-- Phase 2: `freight_invoices` table + Invoices page (Freight tab)
-- Phase 3: `packaging_materials`, `sku_packaging_config`, `packaging_purchases` tables + Packaging page
-- Phase 4: COGS calculation engine + COGS API + COGS page
+- Phase 1 ✅: Dropped `packaging_cost`/`other_cost`/`total_cogs` from purchases; added `shrinkage_rate`/`delivery_rate` to `master_skus`
+- Phase 2 ✅: `freight_invoices` table + Invoices page (Freight tab complete; Packaging Purchases tab 🚧 in progress)
+- Phase 3 ✅: `packaging_materials`, `sku_packaging_config`, `packaging_purchases` tables + Packaging page (Materials + SKU Specs tabs)
+- Phase 4 🚧: COGS calculation engine + COGS API + COGS page (not started)
 
-**New tables to be created:**
+**Tables created:**
 ```
-freight_invoices        — inward freight per purchase invoice
-packaging_materials     — catalog of packaging material types (cost/unit)
-sku_packaging_config    — which materials each SKU uses + qty_per_dispatch
-packaging_purchases     — bulk purchases of packaging materials
+freight_invoices        — inward freight per purchase invoice         ✅ created
+packaging_materials     — catalog of packaging material types          ✅ created
+sku_packaging_config    — which materials each SKU uses + qty          ✅ created
+packaging_purchases     — bulk purchases of packaging materials        ✅ created
 ```
 
 **New nav order (final target):**
 ```
 Dashboard → Master Catalog → Purchases → Invoices → Packaging → COGS → Import Data → Inventory & P&L → Settings
 ```
+
+---
+
+## 🚧 Remaining COGS Tasks (next session)
+
+1. **Task 9 (in progress):** Add Packaging Purchases tab to `src/app/(dashboard)/invoices/page.tsx`
+   - State + load functions already added; tab UI + dialog + handlers still need writing
+   - Also fix: line 284 uses `{loading ?` but the variable is `{freightLoading ?` (causes TS error)
+   - Tab trigger on line 257 is disabled with label "Packaging Materials (coming soon)" — needs to be enabled
+
+2. **Task 10:** Create `src/lib/cogs/calculate.ts` — COGS engine (WAC + freight + packaging + shrinkage)
+
+3. **Task 11:** Create `src/app/api/cogs/route.ts` (list all SKUs with COGS) and `src/app/api/cogs/[skuId]/route.ts` (GET single SKU COGS + PATCH `shrinkage_rate`/`delivery_rate`)
+
+4. **Task 12:** Create `src/app/(dashboard)/cogs/page.tsx`
+
+5. **Task 13:** `npx tsc --noEmit` → `git push origin main` → deploy to Hetzner → smoke test
 
 ---
 
