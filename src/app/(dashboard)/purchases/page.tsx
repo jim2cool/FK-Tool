@@ -372,8 +372,8 @@ export default function PurchasesPage() {
     const headers = [
       'Receipt Date', 'Master Product', 'Variant', 'Qty',
       'HSN Code', 'GST Rate', 'Tax Paid',
-      'Rate/Unit (ex)', 'GST/Unit', 'Unit Price (incl.)',
-      'Total GST', 'Total Amount',
+      'Rate/Unit (ex)', 'GST/Unit', 'Unit Price (incl. GST)',
+      'GST Not Charged', 'Total Amount',
       'Vendor', 'Invoice #', 'Warehouse',
     ]
     const rows = filtered.map(p => {
@@ -538,7 +538,7 @@ export default function PurchasesPage() {
                   </span>
                   <div className="ml-auto flex items-center gap-4 text-sm text-muted-foreground">
                     <span>₹{fmt(totals.amount)} total</span>
-                    {totals.gst > 0 && <span>₹{fmt(totals.gst)} GST</span>}
+                    {totals.gst > 0 && <span>₹{fmt(totals.gst)} GST not charged</span>}
                   </div>
                 </button>
 
@@ -557,8 +557,8 @@ export default function PurchasesPage() {
                           <TableHead>Tax Paid</TableHead>
                           <TableHead className="text-right">Rate/Unit (ex)</TableHead>
                           <TableHead className="text-right">GST/Unit</TableHead>
-                          <TableHead className="text-right">Unit Price (incl.)</TableHead>
-                          <TableHead className="text-right">Total GST</TableHead>
+                          <TableHead className="text-right">Unit Price (incl. GST)</TableHead>
+                          <TableHead className="text-right">GST Not Charged</TableHead>
                           <TableHead className="text-right font-semibold">Total Amount</TableHead>
                           <TableHead>Vendor</TableHead>
                           <TableHead>Invoice #</TableHead>
@@ -664,7 +664,7 @@ export default function PurchasesPage() {
             {pageTotals.gst > 0 && (
               <>
                 <Separator orientation="vertical" className="h-4" />
-                <span>GST: <span className="font-semibold text-foreground">₹{fmt(pageTotals.gst)}</span></span>
+                <span>GST not charged: <span className="font-semibold text-foreground">₹{fmt(pageTotals.gst)}</span></span>
               </>
             )}
             <Separator orientation="vertical" className="h-4" />
@@ -795,8 +795,8 @@ export default function PurchasesPage() {
             {form.unit_purchase_price && (
               <div className="rounded-md bg-muted/50 px-3 py-2 text-xs text-muted-foreground grid grid-cols-2 gap-x-4 gap-y-1">
                 <span>GST/unit: <span className="font-medium text-foreground">₹{fmt(liveCalc.gstPerUnit)}</span></span>
-                <span>Unit price (incl.): <span className="font-medium text-foreground">₹{fmt(liveCalc.unitIncl)}</span></span>
-                <span>Total GST: <span className="font-medium text-foreground">{liveCalc.totalGst === 0 ? '—' : `₹${fmt(liveCalc.totalGst)}`}</span></span>
+                <span>Unit price (incl. GST): <span className="font-medium text-foreground">₹{fmt(liveCalc.unitIncl)}</span></span>
+                <span>GST not charged: <span className="font-medium text-foreground">{liveCalc.totalGst === 0 ? '—' : `₹${fmt(liveCalc.totalGst)}`}</span></span>
                 <span>Total amount: <span className="font-semibold text-foreground">₹{fmt(liveCalc.totalAmt)}</span></span>
               </div>
             )}
