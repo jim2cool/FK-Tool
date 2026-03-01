@@ -46,34 +46,22 @@ export async function GET(request: Request) {
       accountFilterIds = (mapped ?? []).map(m => m.master_sku_id)
     }
 
-    // Build purchase summaries
+    // Build warehouse presence map — just track which warehouses each SKU has purchases in
     let purchaseQuery = supabase
       .from('purchases')
-      .select('master_sku_id, warehouse_id, quantity, total_cogs, warehouses(id, name, location)')
+      .select('master_sku_id, warehouse_id, warehouses(id, name, location)')
       .eq('tenant_id', tenantId)
     if (warehouseId) purchaseQuery = purchaseQuery.eq('warehouse_id', warehouseId)
     const { data: purchases } = await purchaseQuery
 
-    type WhSummary = {
-      warehouse_id: string; warehouse_name: string; location: string | null
-      total_qty: number; total_cogs: number; avg_cogs: number
-    }
+    type WhSummary = { warehouse_id: string; warehouse_name: string; location: string | null }
     const summaryMap: Record<string, WhSummary[]> = {}
     for (const p of purchases ?? []) {
       const wh = p.warehouses as unknown as { id: string; name: string; location: string | null } | null
       if (!wh) continue
       if (!summaryMap[p.master_sku_id]) summaryMap[p.master_sku_id] = []
-      const existing = summaryMap[p.master_sku_id].find(s => s.warehouse_id === wh.id)
-      if (existing) {
-        existing.total_qty += p.quantity
-        existing.total_cogs += Number(p.total_cogs)
-        existing.avg_cogs = existing.total_cogs / existing.total_qty
-      } else {
-        summaryMap[p.master_sku_id].push({
-          warehouse_id: wh.id, warehouse_name: wh.name, location: wh.location,
-          total_qty: p.quantity, total_cogs: Number(p.total_cogs),
-          avg_cogs: Number(p.total_cogs) / p.quantity,
-        })
+      if (!summaryMap[p.master_sku_id].some(s => s.warehouse_id === wh.id)) {
+        summaryMap[p.master_sku_id].push({ warehouse_id: wh.id, warehouse_name: wh.name, location: wh.location })
       }
     }
 
@@ -81,22 +69,19 @@ export async function GET(request: Request) {
     const topLevel = (allSkus ?? []).filter(s => s.parent_id === null)
     const variantRows = (allSkus ?? []).filter(s => s.parent_id !== null)
 
-    // Aggregate warehouse summaries for a parent from its variants
+    // Aggregate warehouse summaries for a parent from its variants (deduplicated)
     function aggregateSummaries(ids: string[]): WhSummary[] {
-      const agg: Record<string, WhSummary> = {}
+      const seen = new Set<string>()
+      const result: WhSummary[] = []
       for (const id of ids) {
         for (const s of summaryMap[id] ?? []) {
-          if (!agg[s.warehouse_id]) {
-            agg[s.warehouse_id] = { ...s }
-          } else {
-            agg[s.warehouse_id].total_qty += s.total_qty
-            agg[s.warehouse_id].total_cogs += s.total_cogs
-            agg[s.warehouse_id].avg_cogs =
-              agg[s.warehouse_id].total_cogs / agg[s.warehouse_id].total_qty
+          if (!seen.has(s.warehouse_id)) {
+            seen.add(s.warehouse_id)
+            result.push(s)
           }
         }
       }
-      return Object.values(agg)
+      return result
     }
 
     // Build enriched result

@@ -12,7 +12,7 @@ import { toast } from 'sonner'
 import { Plus, Pencil, Trash2 } from 'lucide-react'
 import { format, parseISO } from 'date-fns'
 
-// ── Types ─────────────────────────────────────────────────────────────────────
+// ── Types ─────────────────────────────────────────────────────────────────────────────────
 
 interface FreightInvoice {
   id: string
@@ -26,7 +26,29 @@ interface FreightInvoice {
   notes: string | null
 }
 
-// ── Constants ─────────────────────────────────────────────────────────────────
+interface PackagingPurchase {
+  id: string
+  packaging_material_id: string
+  invoice_number: string | null
+  quantity: number
+  unit_cost: number
+  tax_paid: boolean
+  gst_rate_slab: string
+  vendor: string | null
+  purchase_date: string
+  created_at: string
+  // joined:
+  packaging_materials: { id: string; name: string; unit: string } | null
+}
+
+interface PackagingMaterial {
+  id: string
+  name: string
+  unit: string
+  unit_cost: number
+}
+
+// ── Constants ─────────────────────────────────────────────────────────────────────────────
 
 const GST_SLABS = ['0%', '5%', '12%', '18%', '28%']
 
@@ -41,7 +63,18 @@ const emptyFreightForm = {
   notes: '',
 }
 
-// ── Helpers ───────────────────────────────────────────────────────────────────
+const emptyPurchaseForm = {
+  packaging_material_id: '',
+  invoice_number: '',
+  vendor: '',
+  purchase_date: format(new Date(), 'yyyy-MM-dd'),
+  quantity: '',
+  unit_cost: '',
+  tax_paid: 'N' as 'Y' | 'N',
+  gst_rate_slab: '18%',
+}
+
+// ── Helpers ────────────────────────────────────────────────────────────────────────────────
 
 function fmt(n: number) {
   return new Intl.NumberFormat('en-IN', { maximumFractionDigits: 2 }).format(n)
@@ -58,24 +91,40 @@ function calcGstAmount(totalAmount: number, gstSlab: string, taxPaid: boolean) {
   }
 }
 
-// ── Page ─────────────────────────────────────────────────────────────────────
+// ── Page ─────────────────────────────────────────────────────────────────────────────────
 
 export default function InvoicesPage() {
+  // ── Freight state ────────────────────────────────────────────────────────────────────────
   const [freightInvoices, setFreightInvoices] = useState<FreightInvoice[]>([])
-  const [loading, setLoading] = useState(true)
-  const [dialogOpen, setDialogOpen] = useState(false)
-  const [editingId, setEditingId] = useState<string | null>(null)
-  const [form, setForm] = useState(emptyFreightForm)
-  const [saving, setSaving] = useState(false)
+  const [freightLoading, setFreightLoading] = useState(true)
+  const [freightDialogOpen, setFreightDialogOpen] = useState(false)
+  const [editingFreightId, setEditingFreightId] = useState<string | null>(null)
+  const [freightForm, setFreightForm] = useState(emptyFreightForm)
+  const [freightSaving, setFreightSaving] = useState(false)
 
-  function setField<K extends keyof typeof emptyFreightForm>(key: K, value: (typeof emptyFreightForm)[K]) {
-    setForm(prev => ({ ...prev, [key]: value }))
+  // ── Packaging state ──────────────────────────────────────────────────────────────────────
+  const [packagingPurchases, setPackagingPurchases] = useState<PackagingPurchase[]>([])
+  const [packagingLoading, setPackagingLoading] = useState(true)
+  const [packagingDialogOpen, setPackagingDialogOpen] = useState(false)
+  const [editingPurchaseId, setEditingPurchaseId] = useState<string | null>(null)
+  const [purchaseForm, setPurchaseForm] = useState(emptyPurchaseForm)
+  const [purchaseSaving, setPurchaseSaving] = useState(false)
+
+  // ── Shared state ───────────────────────────────────────────────────────────────────────────
+  const [materials, setMaterials] = useState<PackagingMaterial[]>([])
+
+  function setFreightField<K extends keyof typeof emptyFreightForm>(key: K, value: (typeof emptyFreightForm)[K]) {
+    setFreightForm(prev => ({ ...prev, [key]: value }))
   }
 
-  // ── Load ────────────────────────────────────────────────────────────────────
+  function setPurchaseField<K extends keyof typeof emptyPurchaseForm>(key: K, value: (typeof emptyPurchaseForm)[K]) {
+    setPurchaseForm(prev => ({ ...prev, [key]: value }))
+  }
+
+  // ── Load ──────────────────────────────────────────────────────────────────────────────────
 
   async function loadFreight() {
-    setLoading(true)
+    setFreightLoading(true)
     try {
       const res = await fetch('/api/freight-invoices')
       if (!res.ok) throw new Error('Failed to load')
@@ -83,23 +132,50 @@ export default function InvoicesPage() {
     } catch {
       toast.error('Failed to load freight invoices')
     } finally {
-      setLoading(false)
+      setFreightLoading(false)
     }
   }
 
-  useEffect(() => { loadFreight() }, [])
-
-  // ── Dialog ──────────────────────────────────────────────────────────────────
-
-  function openAdd() {
-    setEditingId(null)
-    setForm(emptyFreightForm)
-    setDialogOpen(true)
+  async function loadPackagingPurchases() {
+    setPackagingLoading(true)
+    try {
+      const res = await fetch('/api/packaging/purchases')
+      if (!res.ok) throw new Error('Failed to load')
+      setPackagingPurchases(await res.json())
+    } catch {
+      toast.error('Failed to load packaging purchases')
+    } finally {
+      setPackagingLoading(false)
+    }
   }
 
-  function openEdit(f: FreightInvoice) {
-    setEditingId(f.id)
-    setForm({
+  async function loadMaterials() {
+    try {
+      const res = await fetch('/api/packaging/materials')
+      if (!res.ok) throw new Error('Failed to load')
+      setMaterials(await res.json())
+    } catch {
+      toast.error('Failed to load packaging materials')
+    }
+  }
+
+  useEffect(() => {
+    loadFreight()
+    loadPackagingPurchases()
+    loadMaterials()
+  }, [])
+
+  // ── Freight Dialog ──────────────────────────────────────────────────────────────────────
+
+  function openFreightAdd() {
+    setEditingFreightId(null)
+    setFreightForm(emptyFreightForm)
+    setFreightDialogOpen(true)
+  }
+
+  function openFreightEdit(f: FreightInvoice) {
+    setEditingFreightId(f.id)
+    setFreightForm({
       purchase_invoice_number: f.purchase_invoice_number,
       freight_invoice_number: f.freight_invoice_number ?? '',
       vendor: f.vendor ?? '',
@@ -109,31 +185,31 @@ export default function InvoicesPage() {
       gst_rate_slab: f.gst_rate_slab,
       notes: f.notes ?? '',
     })
-    setDialogOpen(true)
+    setFreightDialogOpen(true)
   }
 
-  // ── Save ────────────────────────────────────────────────────────────────────
+  // ── Freight Save / Delete ───────────────────────────────────────────────────────────────────
 
-  async function handleSave() {
-    if (!form.purchase_invoice_number.trim()) return toast.error('Purchase Invoice # is required')
-    if (!form.total_amount || Number(form.total_amount) <= 0) return toast.error('Amount must be > 0')
-    if (!form.freight_date) return toast.error('Freight date is required')
+  async function handleFreightSave() {
+    if (!freightForm.purchase_invoice_number.trim()) return toast.error('Purchase Invoice # is required')
+    if (!freightForm.total_amount || Number(freightForm.total_amount) <= 0) return toast.error('Amount must be > 0')
+    if (!freightForm.freight_date) return toast.error('Freight date is required')
 
-    setSaving(true)
+    setFreightSaving(true)
     try {
       const payload = {
-        ...(editingId ? { id: editingId } : {}),
-        purchase_invoice_number: form.purchase_invoice_number.trim(),
-        freight_invoice_number: form.freight_invoice_number.trim() || null,
-        vendor: form.vendor.trim() || null,
-        freight_date: form.freight_date,
-        total_amount: Number(form.total_amount),
-        tax_paid: form.tax_paid === 'Y',
-        gst_rate_slab: form.gst_rate_slab,
-        notes: form.notes.trim() || null,
+        ...(editingFreightId ? { id: editingFreightId } : {}),
+        purchase_invoice_number: freightForm.purchase_invoice_number.trim(),
+        freight_invoice_number: freightForm.freight_invoice_number.trim() || null,
+        vendor: freightForm.vendor.trim() || null,
+        freight_date: freightForm.freight_date,
+        total_amount: Number(freightForm.total_amount),
+        tax_paid: freightForm.tax_paid === 'Y',
+        gst_rate_slab: freightForm.gst_rate_slab,
+        notes: freightForm.notes.trim() || null,
       }
       const res = await fetch('/api/freight-invoices', {
-        method: editingId ? 'PATCH' : 'POST',
+        method: editingFreightId ? 'PATCH' : 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(payload),
       })
@@ -142,15 +218,15 @@ export default function InvoicesPage() {
         toast.error(error ?? 'Failed to save')
         return
       }
-      toast.success(editingId ? 'Freight invoice updated' : 'Freight invoice added')
-      setDialogOpen(false)
+      toast.success(editingFreightId ? 'Freight invoice updated' : 'Freight invoice added')
+      setFreightDialogOpen(false)
       loadFreight()
     } finally {
-      setSaving(false)
+      setFreightSaving(false)
     }
   }
 
-  async function handleDelete(id: string) {
+  async function handleFreightDelete(id: string) {
     if (!confirm('Delete this freight invoice?')) return
     const res = await fetch('/api/freight-invoices', {
       method: 'DELETE',
@@ -161,9 +237,82 @@ export default function InvoicesPage() {
     else toast.error('Failed to delete')
   }
 
-  // ── Footer totals ────────────────────────────────────────────────────────────
+  // ── Packaging Dialog ──────────────────────────────────────────────────────────────────────
 
-  const totals = useMemo(() => {
+  function openPackagingAdd() {
+    setEditingPurchaseId(null)
+    setPurchaseForm(emptyPurchaseForm)
+    setPackagingDialogOpen(true)
+  }
+
+  function openPackagingEdit(p: PackagingPurchase) {
+    setEditingPurchaseId(p.id)
+    setPurchaseForm({
+      packaging_material_id: p.packaging_material_id,
+      invoice_number: p.invoice_number ?? '',
+      vendor: p.vendor ?? '',
+      purchase_date: p.purchase_date,
+      quantity: String(p.quantity),
+      unit_cost: String(p.unit_cost),
+      tax_paid: p.tax_paid ? 'Y' : 'N',
+      gst_rate_slab: p.gst_rate_slab,
+    })
+    setPackagingDialogOpen(true)
+  }
+
+  // ── Packaging Save / Delete ─────────────────────────────────────────────────────────────────
+
+  async function handlePackagingSave() {
+    if (!purchaseForm.packaging_material_id) return toast.error('Material is required')
+    if (!purchaseForm.purchase_date) return toast.error('Date is required')
+    if (!purchaseForm.quantity || Number(purchaseForm.quantity) <= 0) return toast.error('Quantity must be > 0')
+    if (!purchaseForm.unit_cost || Number(purchaseForm.unit_cost) <= 0) return toast.error('Unit cost must be > 0')
+
+    setPurchaseSaving(true)
+    try {
+      const payload = {
+        ...(editingPurchaseId ? { id: editingPurchaseId } : {}),
+        packaging_material_id: purchaseForm.packaging_material_id,
+        invoice_number: purchaseForm.invoice_number.trim() || null,
+        vendor: purchaseForm.vendor.trim() || null,
+        purchase_date: purchaseForm.purchase_date,
+        quantity: Number(purchaseForm.quantity),
+        unit_cost: Number(purchaseForm.unit_cost),
+        tax_paid: purchaseForm.tax_paid === 'Y',
+        gst_rate_slab: purchaseForm.gst_rate_slab,
+      }
+      const res = await fetch('/api/packaging/purchases', {
+        method: editingPurchaseId ? 'PATCH' : 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload),
+      })
+      if (!res.ok) {
+        const { error } = await res.json()
+        toast.error(error ?? 'Failed to save')
+        return
+      }
+      toast.success(editingPurchaseId ? 'Packaging purchase updated' : 'Packaging purchase added')
+      setPackagingDialogOpen(false)
+      loadPackagingPurchases()
+    } finally {
+      setPurchaseSaving(false)
+    }
+  }
+
+  async function handlePackagingDelete(id: string) {
+    if (!confirm('Delete this packaging purchase?')) return
+    const res = await fetch('/api/packaging/purchases', {
+      method: 'DELETE',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ id }),
+    })
+    if (res.ok) { toast.success('Deleted'); loadPackagingPurchases() }
+    else toast.error('Failed to delete')
+  }
+
+  // ── Footer totals ────────────────────────────────────────────────────────────────────────────
+
+  const freightTotals = useMemo(() => {
     let totalFreight = 0
     let totalGstNotCharged = 0
     for (const f of freightInvoices) {
@@ -173,14 +322,34 @@ export default function InvoicesPage() {
     return { totalFreight, totalGstNotCharged }
   }, [freightInvoices])
 
-  // ── Live GST preview ──────────────────────────────────────────────────────────
+  const packagingTotals = useMemo(() => {
+    let totalSpend = 0
+    let totalGstNotCharged = 0
+    for (const p of packagingPurchases) {
+      const lineTotal = p.quantity * p.unit_cost
+      totalSpend += lineTotal
+      if (!p.tax_paid) totalGstNotCharged += calcGstAmount(lineTotal, p.gst_rate_slab, false)
+    }
+    return { totalSpend, totalGstNotCharged }
+  }, [packagingPurchases])
 
-  const liveGst = useMemo(() => {
-    const amt = Number(form.total_amount) || 0
-    return calcGstAmount(amt, form.gst_rate_slab, form.tax_paid === 'Y')
-  }, [form.total_amount, form.gst_rate_slab, form.tax_paid])
+  // ── Live GST previews ─────────────────────────────────────────────────────────────────────────────
 
-  // ── Render ───────────────────────────────────────────────────────────────────
+  const freightLiveGst = useMemo(() => {
+    const amt = Number(freightForm.total_amount) || 0
+    return calcGstAmount(amt, freightForm.gst_rate_slab, freightForm.tax_paid === 'Y')
+  }, [freightForm.total_amount, freightForm.gst_rate_slab, freightForm.tax_paid])
+
+  const packagingLiveGst = useMemo(() => {
+    const lineTotal = (Number(purchaseForm.quantity) || 0) * (Number(purchaseForm.unit_cost) || 0)
+    return calcGstAmount(lineTotal, purchaseForm.gst_rate_slab, purchaseForm.tax_paid === 'Y')
+  }, [purchaseForm.quantity, purchaseForm.unit_cost, purchaseForm.gst_rate_slab, purchaseForm.tax_paid])
+
+  const packagingLiveTotal = useMemo(() => {
+    return (Number(purchaseForm.quantity) || 0) * (Number(purchaseForm.unit_cost) || 0)
+  }, [purchaseForm.quantity, purchaseForm.unit_cost])
+
+  // ── Render ───────────────────────────────────────────────────────────────────────────────────
 
   return (
     <div className="p-6 space-y-4">
@@ -194,13 +363,13 @@ export default function InvoicesPage() {
       <Tabs defaultValue="freight">
         <TabsList>
           <TabsTrigger value="freight">Freight</TabsTrigger>
-          <TabsTrigger value="packaging" disabled>Packaging Materials (coming soon)</TabsTrigger>
+          <TabsTrigger value="packaging">Packaging Purchases</TabsTrigger>
         </TabsList>
 
-        {/* ── Freight Tab ────────────────────────────────────────────────────── */}
+        {/* ── Freight Tab ────────────────────────────────────────────────────────────────── */}
         <TabsContent value="freight" className="space-y-3 mt-4">
           <div className="flex justify-end">
-            <Button size="sm" onClick={openAdd}>
+            <Button size="sm" onClick={openFreightAdd}>
               <Plus className="h-4 w-4 mr-1" /> Add Freight Invoice
             </Button>
           </div>
@@ -221,7 +390,7 @@ export default function InvoicesPage() {
                 </TableRow>
               </TableHeader>
               <TableBody>
-                {loading ? (
+                {freightLoading ? (
                   <TableRow><TableCell colSpan={9} className="text-center text-muted-foreground py-8">Loading…</TableCell></TableRow>
                 ) : freightInvoices.length === 0 ? (
                   <TableRow><TableCell colSpan={9} className="text-center text-muted-foreground py-8">No freight invoices yet</TableCell></TableRow>
@@ -247,10 +416,10 @@ export default function InvoicesPage() {
                       </TableCell>
                       <TableCell>
                         <div className="flex gap-1 justify-end">
-                          <Button variant="ghost" size="icon" className="h-7 w-7" onClick={() => openEdit(f)}>
+                          <Button variant="ghost" size="icon" className="h-7 w-7" onClick={() => openFreightEdit(f)}>
                             <Pencil className="h-3.5 w-3.5" />
                           </Button>
-                          <Button variant="ghost" size="icon" className="h-7 w-7 text-destructive hover:text-destructive" onClick={() => handleDelete(f.id)}>
+                          <Button variant="ghost" size="icon" className="h-7 w-7 text-destructive hover:text-destructive" onClick={() => handleFreightDelete(f.id)}>
                             <Trash2 className="h-3.5 w-3.5" />
                           </Button>
                         </div>
@@ -262,23 +431,106 @@ export default function InvoicesPage() {
             </Table>
           </div>
 
-          {/* Footer totals */}
+          {/* Freight footer totals */}
           {freightInvoices.length > 0 && (
             <div className="flex justify-end gap-8 text-sm px-2">
-              <span>Total freight: <span className="font-semibold">₹{fmt(totals.totalFreight)}</span></span>
-              {totals.totalGstNotCharged > 0 && (
-                <span className="text-amber-600">GST not charged: <span className="font-semibold">₹{fmt(totals.totalGstNotCharged)}</span></span>
+              <span>Total freight: <span className="font-semibold">₹{fmt(freightTotals.totalFreight)}</span></span>
+              {freightTotals.totalGstNotCharged > 0 && (
+                <span className="text-amber-600">GST not charged: <span className="font-semibold">₹{fmt(freightTotals.totalGstNotCharged)}</span></span>
+              )}
+            </div>
+          )}
+        </TabsContent>
+
+        {/* ── Packaging Purchases Tab ─────────────────────────────────────────────────────── */}
+        <TabsContent value="packaging" className="space-y-3 mt-4">
+          <div className="flex justify-end">
+            <Button size="sm" onClick={openPackagingAdd}>
+              <Plus className="h-4 w-4 mr-1" /> Add Packaging Purchase
+            </Button>
+          </div>
+
+          <div className="rounded-md border">
+            <Table>
+              <TableHeader>
+                <TableRow>
+                  <TableHead>Date</TableHead>
+                  <TableHead>Invoice #</TableHead>
+                  <TableHead>Vendor</TableHead>
+                  <TableHead>Material</TableHead>
+                  <TableHead>Unit</TableHead>
+                  <TableHead className="text-right">Qty</TableHead>
+                  <TableHead className="text-right">Unit Cost (₹)</TableHead>
+                  <TableHead className="text-right">Total (₹)</TableHead>
+                  <TableHead>GST Rate</TableHead>
+                  <TableHead>Tax Paid</TableHead>
+                  <TableHead className="text-right">GST Amount (₹)</TableHead>
+                  <TableHead />
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {packagingLoading ? (
+                  <TableRow><TableCell colSpan={12} className="text-center text-muted-foreground py-8">Loading…</TableCell></TableRow>
+                ) : packagingPurchases.length === 0 ? (
+                  <TableRow><TableCell colSpan={12} className="text-center text-muted-foreground py-8">No packaging purchases yet</TableCell></TableRow>
+                ) : packagingPurchases.map(p => {
+                  const lineTotal = p.quantity * p.unit_cost
+                  const gstAmt = calcGstAmount(lineTotal, p.gst_rate_slab, p.tax_paid)
+                  return (
+                    <TableRow key={p.id}>
+                      <TableCell className="text-sm">{format(parseISO(p.purchase_date), 'd MMM yyyy')}</TableCell>
+                      <TableCell className="text-sm font-mono">{p.invoice_number ?? <span className="text-muted-foreground">—</span>}</TableCell>
+                      <TableCell className="text-sm">{p.vendor ?? <span className="text-muted-foreground">—</span>}</TableCell>
+                      <TableCell className="text-sm">{p.packaging_materials?.name ?? <span className="text-muted-foreground">—</span>}</TableCell>
+                      <TableCell className="text-sm text-muted-foreground">{p.packaging_materials?.unit ?? '—'}</TableCell>
+                      <TableCell className="text-right text-sm">{fmt(p.quantity)}</TableCell>
+                      <TableCell className="text-right text-sm">₹{fmt(p.unit_cost)}</TableCell>
+                      <TableCell className="text-right text-sm font-medium">₹{fmt(lineTotal)}</TableCell>
+                      <TableCell><Badge variant="outline">{p.gst_rate_slab}</Badge></TableCell>
+                      <TableCell>
+                        {p.tax_paid
+                          ? <Badge variant="secondary">Paid</Badge>
+                          : <Badge variant="outline" className="text-amber-600 border-amber-300">Not Charged</Badge>}
+                      </TableCell>
+                      <TableCell className="text-right text-sm">
+                        {p.tax_paid
+                          ? <span className="text-muted-foreground">₹{fmt(gstAmt)} <span className="text-xs">(incl.)</span></span>
+                          : <span className="text-amber-600">₹{fmt(gstAmt)}</span>}
+                      </TableCell>
+                      <TableCell>
+                        <div className="flex gap-1 justify-end">
+                          <Button variant="ghost" size="icon" className="h-7 w-7" onClick={() => openPackagingEdit(p)}>
+                            <Pencil className="h-3.5 w-3.5" />
+                          </Button>
+                          <Button variant="ghost" size="icon" className="h-7 w-7 text-destructive hover:text-destructive" onClick={() => handlePackagingDelete(p.id)}>
+                            <Trash2 className="h-3.5 w-3.5" />
+                          </Button>
+                        </div>
+                      </TableCell>
+                    </TableRow>
+                  )
+                })}
+              </TableBody>
+            </Table>
+          </div>
+
+          {/* Packaging footer totals */}
+          {packagingPurchases.length > 0 && (
+            <div className="flex justify-end gap-8 text-sm px-2">
+              <span>Total spend: <span className="font-semibold">₹{fmt(packagingTotals.totalSpend)}</span></span>
+              {packagingTotals.totalGstNotCharged > 0 && (
+                <span className="text-amber-600">GST not charged: <span className="font-semibold">₹{fmt(packagingTotals.totalGstNotCharged)}</span></span>
               )}
             </div>
           )}
         </TabsContent>
       </Tabs>
 
-      {/* ── Add / Edit Dialog ──────────────────────────────────────────────── */}
-      <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
+      {/* ── Freight Add / Edit Dialog ─────────────────────────────────────────────────────────── */}
+      <Dialog open={freightDialogOpen} onOpenChange={setFreightDialogOpen}>
         <DialogContent className="max-w-md">
           <DialogHeader>
-            <DialogTitle>{editingId ? 'Edit Freight Invoice' : 'Add Freight Invoice'}</DialogTitle>
+            <DialogTitle>{editingFreightId ? 'Edit Freight Invoice' : 'Add Freight Invoice'}</DialogTitle>
           </DialogHeader>
 
           <div className="space-y-3 py-1">
@@ -286,8 +538,8 @@ export default function InvoicesPage() {
             <div className="space-y-1">
               <Label className="text-xs">Purchase Invoice # <span className="text-destructive">*</span></Label>
               <Input placeholder="e.g. INV-2024-001"
-                value={form.purchase_invoice_number}
-                onChange={e => setField('purchase_invoice_number', e.target.value)} />
+                value={freightForm.purchase_invoice_number}
+                onChange={e => setFreightField('purchase_invoice_number', e.target.value)} />
               <p className="text-xs text-muted-foreground">Match exactly to the Invoice # on your purchase records</p>
             </div>
 
@@ -295,30 +547,30 @@ export default function InvoicesPage() {
             <div className="space-y-1">
               <Label className="text-xs">Freight Invoice #</Label>
               <Input placeholder="e.g. KB-20260128-001 (self-generate for kaccha bills)"
-                value={form.freight_invoice_number}
-                onChange={e => setField('freight_invoice_number', e.target.value)} />
+                value={freightForm.freight_invoice_number}
+                onChange={e => setFreightField('freight_invoice_number', e.target.value)} />
             </div>
 
             {/* Vendor */}
             <div className="space-y-1">
               <Label className="text-xs">Vendor (Courier / Transporter)</Label>
               <Input placeholder="e.g. DTDC, Delhivery"
-                value={form.vendor}
-                onChange={e => setField('vendor', e.target.value)} />
+                value={freightForm.vendor}
+                onChange={e => setFreightField('vendor', e.target.value)} />
             </div>
 
             {/* Date + Amount */}
             <div className="grid grid-cols-2 gap-3">
               <div className="space-y-1">
                 <Label className="text-xs">Freight Date <span className="text-destructive">*</span></Label>
-                <Input type="date" value={form.freight_date}
-                  onChange={e => setField('freight_date', e.target.value)} />
+                <Input type="date" value={freightForm.freight_date}
+                  onChange={e => setFreightField('freight_date', e.target.value)} />
               </div>
               <div className="space-y-1">
                 <Label className="text-xs">Total Amount (₹) <span className="text-destructive">*</span></Label>
                 <Input type="number" min={0} step="0.01" placeholder="0.00"
-                  value={form.total_amount}
-                  onChange={e => setField('total_amount', e.target.value)} />
+                  value={freightForm.total_amount}
+                  onChange={e => setFreightField('total_amount', e.target.value)} />
               </div>
             </div>
 
@@ -326,7 +578,7 @@ export default function InvoicesPage() {
             <div className="grid grid-cols-2 gap-3">
               <div className="space-y-1">
                 <Label className="text-xs">Tax Paid?</Label>
-                <Select value={form.tax_paid} onValueChange={v => setField('tax_paid', v as 'Y' | 'N')}>
+                <Select value={freightForm.tax_paid} onValueChange={v => setFreightField('tax_paid', v as 'Y' | 'N')}>
                   <SelectTrigger><SelectValue /></SelectTrigger>
                   <SelectContent>
                     <SelectItem value="Y">Yes — already paid</SelectItem>
@@ -336,7 +588,7 @@ export default function InvoicesPage() {
               </div>
               <div className="space-y-1">
                 <Label className="text-xs">GST Rate</Label>
-                <Select value={form.gst_rate_slab} onValueChange={v => setField('gst_rate_slab', v)}>
+                <Select value={freightForm.gst_rate_slab} onValueChange={v => setFreightField('gst_rate_slab', v)}>
                   <SelectTrigger><SelectValue /></SelectTrigger>
                   <SelectContent>
                     {GST_SLABS.map(s => <SelectItem key={s} value={s}>{s}</SelectItem>)}
@@ -346,11 +598,11 @@ export default function InvoicesPage() {
             </div>
 
             {/* Live GST preview */}
-            {form.total_amount && (
+            {freightForm.total_amount && (
               <div className="rounded-md bg-muted/50 px-3 py-2 text-xs text-muted-foreground">
-                {form.tax_paid === 'Y'
-                  ? <>GST embedded in total: <span className="font-medium text-foreground">₹{fmt(liveGst)}</span> (reverse calc)</>
-                  : <>Notional GST not charged: <span className="font-medium text-amber-600">₹{fmt(liveGst)}</span></>
+                {freightForm.tax_paid === 'Y'
+                  ? <>GST embedded in total: <span className="font-medium text-foreground">₹{fmt(freightLiveGst)}</span> (reverse calc)</>
+                  : <>Notional GST not charged: <span className="font-medium text-amber-600">₹{fmt(freightLiveGst)}</span></>
                 }
               </div>
             )}
@@ -359,15 +611,126 @@ export default function InvoicesPage() {
             <div className="space-y-1">
               <Label className="text-xs">Notes</Label>
               <Input placeholder="Optional"
-                value={form.notes}
-                onChange={e => setField('notes', e.target.value)} />
+                value={freightForm.notes}
+                onChange={e => setFreightField('notes', e.target.value)} />
             </div>
           </div>
 
           <DialogFooter>
-            <Button variant="outline" onClick={() => setDialogOpen(false)}>Cancel</Button>
-            <Button onClick={handleSave} disabled={saving}>
-              {saving ? 'Saving…' : editingId ? 'Save Changes' : 'Add Invoice'}
+            <Button variant="outline" onClick={() => setFreightDialogOpen(false)}>Cancel</Button>
+            <Button onClick={handleFreightSave} disabled={freightSaving}>
+              {freightSaving ? 'Saving…' : editingFreightId ? 'Save Changes' : 'Add Invoice'}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* ── Packaging Add / Edit Dialog ───────────────────────────────────────────────────────────── */}
+      <Dialog open={packagingDialogOpen} onOpenChange={setPackagingDialogOpen}>
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle>{editingPurchaseId ? 'Edit Packaging Purchase' : 'Add Packaging Purchase'}</DialogTitle>
+          </DialogHeader>
+
+          <div className="space-y-3 py-1">
+            {/* Material */}
+            <div className="space-y-1">
+              <Label className="text-xs">Material <span className="text-destructive">*</span></Label>
+              <Select value={purchaseForm.packaging_material_id} onValueChange={v => setPurchaseField('packaging_material_id', v)}>
+                <SelectTrigger>
+                  <SelectValue placeholder="Select a material…" />
+                </SelectTrigger>
+                <SelectContent>
+                  {materials.length === 0
+                    ? <SelectItem value="__none" disabled>No materials found — add from Packaging page</SelectItem>
+                    : materials.map(m => (
+                        <SelectItem key={m.id} value={m.id}>{m.name} ({m.unit})</SelectItem>
+                      ))
+                  }
+                </SelectContent>
+              </Select>
+            </div>
+
+            {/* Invoice # */}
+            <div className="space-y-1">
+              <Label className="text-xs">Invoice #</Label>
+              <Input placeholder="e.g. KB-20260128-001"
+                value={purchaseForm.invoice_number}
+                onChange={e => setPurchaseField('invoice_number', e.target.value)} />
+            </div>
+
+            {/* Vendor */}
+            <div className="space-y-1">
+              <Label className="text-xs">Vendor</Label>
+              <Input placeholder="e.g. Uline, local market"
+                value={purchaseForm.vendor}
+                onChange={e => setPurchaseField('vendor', e.target.value)} />
+            </div>
+
+            {/* Date */}
+            <div className="space-y-1">
+              <Label className="text-xs">Date <span className="text-destructive">*</span></Label>
+              <Input type="date" value={purchaseForm.purchase_date}
+                onChange={e => setPurchaseField('purchase_date', e.target.value)} />
+            </div>
+
+            {/* Qty + Unit Cost */}
+            <div className="grid grid-cols-2 gap-3">
+              <div className="space-y-1">
+                <Label className="text-xs">Quantity <span className="text-destructive">*</span></Label>
+                <Input type="number" min={0.001} step="0.001" placeholder="0"
+                  value={purchaseForm.quantity}
+                  onChange={e => setPurchaseField('quantity', e.target.value)} />
+              </div>
+              <div className="space-y-1">
+                <Label className="text-xs">Unit Cost (₹) <span className="text-destructive">*</span></Label>
+                <Input type="number" min={0} step="0.01" placeholder="0.00"
+                  value={purchaseForm.unit_cost}
+                  onChange={e => setPurchaseField('unit_cost', e.target.value)} />
+              </div>
+            </div>
+
+            {/* Tax Paid + GST Rate */}
+            <div className="grid grid-cols-2 gap-3">
+              <div className="space-y-1">
+                <Label className="text-xs">Tax Paid?</Label>
+                <Select value={purchaseForm.tax_paid} onValueChange={v => setPurchaseField('tax_paid', v as 'Y' | 'N')}>
+                  <SelectTrigger><SelectValue /></SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="Y">Yes — already paid</SelectItem>
+                    <SelectItem value="N">No — kaccha bill</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+              <div className="space-y-1">
+                <Label className="text-xs">GST Rate</Label>
+                <Select value={purchaseForm.gst_rate_slab} onValueChange={v => setPurchaseField('gst_rate_slab', v)}>
+                  <SelectTrigger><SelectValue /></SelectTrigger>
+                  <SelectContent>
+                    {GST_SLABS.map(s => <SelectItem key={s} value={s}>{s}</SelectItem>)}
+                  </SelectContent>
+                </Select>
+              </div>
+            </div>
+
+            {/* Live GST + total preview */}
+            {purchaseForm.quantity && purchaseForm.unit_cost && (
+              <div className="rounded-md bg-muted/50 px-3 py-2 text-xs text-muted-foreground space-y-0.5">
+                <div>Line total: <span className="font-medium text-foreground">₹{fmt(packagingLiveTotal)}</span></div>
+                <div>
+                  {purchaseForm.tax_paid === 'Y'
+                    ? <>GST embedded in total: <span className="font-medium text-foreground">₹{fmt(packagingLiveGst)}</span> (reverse calc)</>
+                    : <>Notional GST not charged: <span className="font-medium text-amber-600">₹{fmt(packagingLiveGst)}</span></>
+                  }
+                </div>
+              </div>
+            )}
+          </div>
+
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setPackagingDialogOpen(false)}>Cancel</Button>
+            <Button onClick={handlePackagingSave} disabled={purchaseSaving}>
+              {purchaseSaving ? 'Saving…' : editingPurchaseId ? 'Save Changes' : 'Add Purchase'}
             </Button>
           </DialogFooter>
         </DialogContent>

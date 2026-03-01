@@ -34,8 +34,6 @@ interface SkuMapping {
 interface WarehouseSummary {
   warehouse_id: string
   warehouse_name: string
-  quantity?: number
-  total_qty?: number
 }
 
 interface MasterSku {
@@ -167,9 +165,7 @@ export default function CatalogPage() {
     }
 
     function warehouseNamesFrom(summaries: WarehouseSummary[]): string[] {
-      return summaries
-        .filter(w => (w.quantity ?? w.total_qty ?? 0) > 0)
-        .map(w => w.warehouse_name)
+      return summaries.map(w => w.warehouse_name)
     }
 
     for (const sku of masterSkus) {
