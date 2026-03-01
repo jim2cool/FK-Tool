@@ -95,11 +95,13 @@ delivery_rate   NUMERIC(5,4)  DEFAULT 1.0    -- historical delivered÷dispatched
 | Packaging materials API | `src/app/api/packaging/materials/route.ts` |
 | Packaging SKU config API | `src/app/api/packaging/sku-config/route.ts` |
 | Packaging purchases API | `src/app/api/packaging/purchases/route.ts` |
-| Invoices page (Freight tab ✅, Packaging tab 🚧) | `src/app/(dashboard)/invoices/page.tsx` |
+| Invoices page (Freight ✅ + Packaging Purchases ✅) | `src/app/(dashboard)/invoices/page.tsx` |
 | Packaging page (Materials + SKU Specs ✅) | `src/app/(dashboard)/packaging/page.tsx` |
-| COGS calculation engine (to create) | `src/lib/cogs/calculate.ts` |
-| COGS API (to create) | `src/app/api/cogs/route.ts` |
-| COGS page (to create) | `src/app/(dashboard)/cogs/page.tsx` |
+| COGS calculation engine ✅ | `src/lib/cogs/calculate.ts` |
+| COGS list API ✅ | `src/app/api/cogs/route.ts` |
+| COGS single-SKU API ✅ | `src/app/api/cogs/[skuId]/route.ts` |
+| COGS page ✅ | `src/app/(dashboard)/cogs/page.tsx` |
+| Popover UI component | `src/components/ui/popover.tsx` |
 
 ---
 
@@ -124,9 +126,9 @@ Full COGS/unit           = Purchase COGS + Dispatch COGS + Shrinkage
 
 **Four phases:**
 - Phase 1 ✅: Dropped `packaging_cost`/`other_cost`/`total_cogs` from purchases; added `shrinkage_rate`/`delivery_rate` to `master_skus`
-- Phase 2 ✅: `freight_invoices` table + Invoices page (Freight tab complete; Packaging Purchases tab 🚧 in progress)
+- Phase 2 ✅: `freight_invoices` table + Invoices page (Freight tab + Packaging Purchases tab)
 - Phase 3 ✅: `packaging_materials`, `sku_packaging_config`, `packaging_purchases` tables + Packaging page (Materials + SKU Specs tabs)
-- Phase 4 🚧: COGS calculation engine + COGS API + COGS page (not started)
+- Phase 4 ✅: COGS calculation engine + COGS list/single API + COGS page (complete)
 
 **Tables created:**
 ```
@@ -143,20 +145,15 @@ Dashboard → Master Catalog → Purchases → Invoices → Packaging → COGS �
 
 ---
 
-## 🚧 Remaining COGS Tasks (next session)
+## ✅ COGS System — Complete
 
-1. **Task 9 (in progress):** Add Packaging Purchases tab to `src/app/(dashboard)/invoices/page.tsx`
-   - State + load functions already added; tab UI + dialog + handlers still need writing
-   - Also fix: line 284 uses `{loading ?` but the variable is `{freightLoading ?` (causes TS error)
-   - Tab trigger on line 257 is disabled with label "Packaging Materials (coming soon)" — needs to be enabled
+All 4 phases shipped. Full COGS system is implemented. Remaining action:
 
-2. **Task 10:** Create `src/lib/cogs/calculate.ts` — COGS engine (WAC + freight + packaging + shrinkage)
+- **Task 13:** `npx tsc --noEmit` → merge worktree to `main` → `git push origin main` → deploy to Hetzner → smoke test
 
-3. **Task 11:** Create `src/app/api/cogs/route.ts` (list all SKUs with COGS) and `src/app/api/cogs/[skuId]/route.ts` (GET single SKU COGS + PATCH `shrinkage_rate`/`delivery_rate`)
-
-4. **Task 12:** Create `src/app/(dashboard)/cogs/page.tsx`
-
-5. **Task 13:** `npx tsc --noEmit` → `git push origin main` → deploy to Hetzner → smoke test
+### Bugs fixed this session
+- **MasterSku field name gotcha:** `packaging/page.tsx` SKU Specs tab was using `sku.sku_code` / `sku.product_name` which don't exist on the type — actual field is `sku.name`. Always check the `MasterSku` type; only `id`, `name`, `sku_code` (wait — only `name` comes back from the API join).
+- **Catalog API `total_cogs` remnant:** `master-skus/route.ts` still referenced the dropped `total_cogs` column in the warehouse aggregation query — removed it.
 
 ---
 
