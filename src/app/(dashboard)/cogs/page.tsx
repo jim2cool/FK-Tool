@@ -26,6 +26,7 @@ import {
 interface CogsBreakdown {
   sku_id: string
   sku_name: string
+  parent_name?: string
   wac_base_per_unit: number
   wac_freight_per_unit: number
   purchase_cogs_per_unit: number
@@ -191,7 +192,7 @@ export default function CogsPage() {
           <TableHeader>
             <TableRow>
               <TableHead className="w-8" />
-              <TableHead>SKU</TableHead>
+              <TableHead>Product / SKU</TableHead>
               <TableHead className="text-right">Lots</TableHead>
               <TableHead className="text-right">Units</TableHead>
               <TableHead className="text-right">WAC Base</TableHead>
@@ -211,10 +212,9 @@ export default function CogsPage() {
               const shrinkageSaving = saving[`${row.sku_id}-shrinkage_rate`] ?? false
 
               return (
-                <>
+                <React.Fragment key={row.sku_id}>
                   {/* Main row */}
                   <TableRow
-                    key={row.sku_id}
                     className="cursor-pointer hover:bg-muted/50"
                     onClick={() => toggleRow(row.sku_id)}
                   >
@@ -225,7 +225,16 @@ export default function CogsPage() {
                         <ChevronRight className="h-4 w-4 text-muted-foreground" />
                       )}
                     </TableCell>
-                    <TableCell className="font-medium">{row.sku_name}</TableCell>
+                    <TableCell>
+                      {row.parent_name ? (
+                        <div>
+                          <div className="font-medium text-sm">{row.parent_name}</div>
+                          <div className="text-xs text-muted-foreground mt-0.5">{row.sku_name}</div>
+                        </div>
+                      ) : (
+                        <span className="font-medium text-sm">{row.sku_name}</span>
+                      )}
+                    </TableCell>
                     <TableCell className="text-right">{row.lot_count}</TableCell>
                     <TableCell className="text-right">{fmt(row.total_units_purchased)}</TableCell>
                     <TableCell className="text-right">₹{fmt(row.wac_base_per_unit)}</TableCell>
@@ -363,7 +372,7 @@ export default function CogsPage() {
                       </TableCell>
                     </TableRow>
                   )}
-                </>
+                </React.Fragment>
               )
             })}
           </TableBody>

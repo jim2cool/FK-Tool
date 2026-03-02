@@ -5,6 +5,7 @@ import { getTenantId } from '@/lib/db/tenant'
 export interface CogsBreakdown {
   sku_id: string
   sku_name: string
+  parent_name?: string
 
   // Purchase COGS (WAC)
   wac_base_per_unit: number          // weighted avg unit_purchase_price (ex-GST)
@@ -103,16 +104,27 @@ export async function calculateCogs(skuId: string): Promise<CogsBreakdown | null
   const wacFreight = totalQty > 0 ? totalAllocatedFreight / totalQty : 0
   const purchaseCogs = wacBase + wacFreight
 
-  // 4. SKU config — shrinkage_rate + delivery_rate
+  // 4. SKU config — shrinkage_rate + delivery_rate + parent name
   const { data: skuRow } = await supabase
     .from('master_skus')
-    .select('id, name, shrinkage_rate, delivery_rate')
+    .select('id, name, parent_id, shrinkage_rate, delivery_rate')
     .eq('id', skuId)
     .eq('tenant_id', tenantId)
     .single()
 
   const shrinkageRate = Number(skuRow?.shrinkage_rate ?? 0.02)
   const deliveryRate = Number(skuRow?.delivery_rate ?? 1.0)
+
+  let parentName: string | undefined
+  if (skuRow?.parent_id) {
+    const { data: parentRow } = await supabase
+      .from('master_skus')
+      .select('name')
+      .eq('id', skuRow.parent_id)
+      .eq('tenant_id', tenantId)
+      .single()
+    parentName = parentRow?.name ?? undefined
+  }
 
   // 5. Dispatch packaging cost
   const { data: packagingConfig } = await supabase
@@ -142,6 +154,7 @@ export async function calculateCogs(skuId: string): Promise<CogsBreakdown | null
   return {
     sku_id: skuId,
     sku_name: skuRow?.name ?? '',
+    parent_name: parentName,
     wac_base_per_unit: Math.round(wacBase * 100) / 100,
     wac_freight_per_unit: Math.round(wacFreight * 100) / 100,
     purchase_cogs_per_unit: Math.round(purchaseCogs * 100) / 100,
