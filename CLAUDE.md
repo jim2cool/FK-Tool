@@ -5,6 +5,20 @@
 
 ---
 
+## 🏗️ Product Standards (apply to EVERY feature)
+
+These are non-negotiable standards. Every new feature or module must include all of the following:
+
+1. **Getting Started Checklist** — if the feature requires initial configuration, add its step(s) to the dashboard onboarding checklist (`src/app/(dashboard)/dashboard/page.tsx` + checklist API)
+2. **Info icons** — every non-obvious field, metric, or calculation gets an `<InfoTooltip content="..." />` (see `src/components/ui/info-tooltip.tsx`)
+3. **Page subtitle** — one-line description under the page heading explaining what the page does and what upstream data it depends on
+4. **Empty state** — when a page has no data, show a helpful message explaining what to do first (not just a blank table)
+5. **Data-missing banners** — if the page depends on upstream data that doesn't exist yet, show a subtle info banner pointing the user to where they need to go first
+
+Design doc: `docs/plans/2026-03-06-user-roles-onboarding-info-design.md`
+
+---
+
 ## 🚀 Deployment
 
 **Platform:** Self-hosted Docker on Hetzner VPS
