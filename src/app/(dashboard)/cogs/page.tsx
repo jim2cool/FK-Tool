@@ -295,9 +295,11 @@ export default function CogsPage() {
                                       else closePopover(deliveryPopKey)
                                     }}
                                   >
-                                    <PopoverTrigger asChild>                                      <button className="text-primary underline underline-offset-2 text-sm hover:text-primary/80 font-mono" onClick={(e: React.MouseEvent) => e.stopPropagation()}>
-                                        {row.delivery_rate.toFixed(2)}
-                                      </button>
+                                    <PopoverTrigger
+                                      className="text-primary underline underline-offset-2 text-sm hover:text-primary/80 font-mono"
+                                      onClick={(e: React.MouseEvent) => e.stopPropagation()}
+                                    >
+                                      {row.delivery_rate.toFixed(2)}
                                     </PopoverTrigger>
                                     <PopoverContent className="w-56 p-3 space-y-2" onClick={(e: React.MouseEvent) => e.stopPropagation()}>
                                       <Label className="text-xs">Delivery rate (0–1)</Label>
@@ -330,10 +332,11 @@ export default function CogsPage() {
                                       else closePopover(shrinkagePopKey)
                                     }}
                                   >
-                                    <PopoverTrigger asChild>
-                                      <button className="text-primary underline underline-offset-2 text-sm hover:text-primary/80 font-mono" onClick={(e: React.MouseEvent) => e.stopPropagation()}>
-                                        {(row.shrinkage_rate * 100).toFixed(2)}%
-                                      </button>
+                                    <PopoverTrigger
+                                      className="text-primary underline underline-offset-2 text-sm hover:text-primary/80 font-mono"
+                                      onClick={(e: React.MouseEvent) => e.stopPropagation()}
+                                    >
+                                      {(row.shrinkage_rate * 100).toFixed(2)}%
                                     </PopoverTrigger>
                                     <PopoverContent className="w-56 p-3 space-y-2" onClick={(e: React.MouseEvent) => e.stopPropagation()}>
                                       <Label className="text-xs">Shrinkage rate (%)</Label>
