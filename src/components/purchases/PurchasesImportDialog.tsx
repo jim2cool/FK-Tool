@@ -122,7 +122,7 @@ export function PurchasesImportDialog({ open, onOpenChange, onImported }: Props)
 
         {/* ── PREVIEW / IMPORTING ── */}
         {(state === 'preview' || state === 'importing') && (
-          <div className="flex-1 flex flex-col min-h-0 space-y-3">
+          <div className="flex flex-col space-y-3">
             <div className="flex items-center gap-4 text-sm">
               <span className="flex items-center gap-1 text-green-600">
                 <CheckCircle2 className="h-4 w-4" />
@@ -135,7 +135,7 @@ export function PurchasesImportDialog({ open, onOpenChange, onImported }: Props)
                 </span>
               )}
             </div>
-            <div className="flex-1 min-h-0 overflow-y-auto border rounded-md">
+            <div className="max-h-[55vh] overflow-y-auto border rounded-md">
               <Table>
                 <TableHeader>
                   <TableRow>

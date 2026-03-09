@@ -12,6 +12,7 @@ import { Skeleton } from '@/components/ui/skeleton'
 import { PurchasesImportDialog } from '@/components/purchases/PurchasesImportDialog'
 import { exportCsv, todayString } from '@/lib/utils/csv-export'
 import { toast } from 'sonner'
+import { Checkbox } from '@/components/ui/checkbox'
 import { Plus, Upload, Download, ChevronDown, ChevronRight, Pencil, Trash2, IndianRupee } from 'lucide-react'
 import { format, parseISO } from 'date-fns'
 
@@ -133,6 +134,9 @@ export default function PurchasesPage() {
     }
   }
 
+  // Bulk selection
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set())
+
   // Add/Edit dialog
   const [dialogOpen, setDialogOpen] = useState(false)
   const [editingId,  setEditingId]  = useState<string | null>(null)
@@ -178,9 +182,10 @@ export default function PurchasesPage() {
     }
   }, [purchases])
 
-  // Reset page when filters change
+  // Reset page and selection when filters change
   useEffect(() => {
     setPage(1)
+    setSelectedIds(new Set())
   }, [search, filterWarehouse, filterFrom, filterTo, filterGst, filterTaxPaid])
 
   // ── Filtering ───────────────────────────────────────────────────────────────
@@ -350,6 +355,24 @@ export default function PurchasesPage() {
     else toast.error('Failed to delete')
   }
 
+  async function handleBulkDelete() {
+    const n = selectedIds.size
+    if (n === 0) return
+    if (!confirm(`Delete ${n} purchase record${n > 1 ? 's' : ''}? This cannot be undone.`)) return
+    const res = await fetch('/api/purchases', {
+      method: 'DELETE',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ ids: [...selectedIds] }),
+    })
+    if (res.ok) {
+      toast.success(`${n} purchase${n > 1 ? 's' : ''} deleted`)
+      setSelectedIds(new Set())
+      loadPurchases()
+    } else {
+      toast.error('Failed to delete selected purchases')
+    }
+  }
+
   function toggleMonth(key: string) {
     setOpenMonths(prev => {
       const next = new Set(prev)
@@ -494,6 +517,31 @@ export default function PurchasesPage() {
         )}
       </div>
 
+      {/* Bulk selection action bar */}
+      {selectedIds.size > 0 && (
+        <div className="flex items-center gap-3 rounded-lg border border-destructive/30 bg-destructive/5 px-4 py-2.5">
+          <span className="text-sm font-medium text-destructive">
+            {selectedIds.size} purchase{selectedIds.size > 1 ? 's' : ''} selected
+          </span>
+          <Button
+            variant="destructive"
+            size="sm"
+            onClick={handleBulkDelete}
+          >
+            <Trash2 className="h-3.5 w-3.5 mr-1.5" />
+            Delete Selected
+          </Button>
+          <Button
+            variant="ghost"
+            size="sm"
+            onClick={() => setSelectedIds(new Set())}
+            className="ml-auto"
+          >
+            Clear selection
+          </Button>
+        </div>
+      )}
+
       {/* Month accordions */}
       {loading ? (
         <div className="space-y-3">
@@ -539,6 +587,21 @@ export default function PurchasesPage() {
                     <Table>
                       <TableHeader>
                         <TableRow>
+                          <TableHead className="w-8">
+                            <Checkbox
+                              checked={rows.length > 0 && rows.every(p => selectedIds.has(p.id))}
+                              data-state={rows.some(p => selectedIds.has(p.id)) && !rows.every(p => selectedIds.has(p.id)) ? 'indeterminate' : undefined}
+                              onCheckedChange={checked => {
+                                setSelectedIds(prev => {
+                                  const next = new Set(prev)
+                                  if (checked) rows.forEach(p => next.add(p.id))
+                                  else rows.forEach(p => next.delete(p.id))
+                                  return next
+                                })
+                              }}
+                              aria-label="Select all in month"
+                            />
+                          </TableHead>
                           <TableHead>Date</TableHead>
                           <TableHead>Master Product</TableHead>
                           <TableHead>Variant</TableHead>
@@ -567,7 +630,21 @@ export default function PurchasesPage() {
                           const parentSku = parentId ? skus.find(s => s.id === parentId) : null
 
                           return (
-                            <TableRow key={p.id}>
+                            <TableRow key={p.id} data-state={selectedIds.has(p.id) ? 'selected' : undefined}>
+                              <TableCell className="w-8">
+                                <Checkbox
+                                  checked={selectedIds.has(p.id)}
+                                  onCheckedChange={checked => {
+                                    setSelectedIds(prev => {
+                                      const next = new Set(prev)
+                                      if (checked) next.add(p.id)
+                                      else next.delete(p.id)
+                                      return next
+                                    })
+                                  }}
+                                  aria-label={`Select purchase ${p.id}`}
+                                />
+                              </TableCell>
                               <TableCell className="text-sm tabular-nums whitespace-nowrap">
                                 {p.purchase_date}
                               </TableCell>

@@ -122,11 +122,13 @@ export async function DELETE(request: Request) {
   try {
     const tenantId = await getTenantId()
     const supabase = await createClient()
-    const { id } = await request.json()
+    const body = await request.json()
+    // Support both single { id } and bulk { ids: string[] }
+    const ids: string[] = body.ids ?? [body.id]
     const { error } = await supabase
       .from('purchases')
       .delete()
-      .eq('id', id)
+      .in('id', ids)
       .eq('tenant_id', tenantId)
     if (error) throw error
     return NextResponse.json({ success: true })
