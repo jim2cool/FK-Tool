@@ -4,7 +4,7 @@ import { useDropzone } from 'react-dropzone'
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog'
 import { Button } from '@/components/ui/button'
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'
-import { ScrollArea } from '@/components/ui/scroll-area'
+
 import { Upload, Download, CheckCircle2, XCircle, AlertCircle } from 'lucide-react'
 import { parsePurchasesCsv, type ParsedPurchaseRow, type PurchaseImportResult } from '@/lib/importers/purchases-csv-parser'
 
@@ -86,7 +86,7 @@ export function PurchasesImportDialog({ open, onOpenChange, onImported }: Props)
 
   return (
     <Dialog open={open} onOpenChange={(o) => { if (!o) reset(); onOpenChange(o) }}>
-      <DialogContent className="max-w-4xl max-h-[90vh] flex flex-col">
+      <DialogContent className="max-w-4xl max-h-[90vh] overflow-hidden flex flex-col">
         <DialogHeader>
           <DialogTitle>
             {state === 'idle'      && 'Import Purchases'}
@@ -135,7 +135,7 @@ export function PurchasesImportDialog({ open, onOpenChange, onImported }: Props)
                 </span>
               )}
             </div>
-            <ScrollArea className="flex-1 border rounded-md">
+            <div className="flex-1 min-h-0 overflow-y-auto border rounded-md">
               <Table>
                 <TableHeader>
                   <TableRow>
@@ -178,7 +178,7 @@ export function PurchasesImportDialog({ open, onOpenChange, onImported }: Props)
                   ))}
                 </TableBody>
               </Table>
-            </ScrollArea>
+            </div>
           </div>
         )}
 
@@ -200,7 +200,7 @@ export function PurchasesImportDialog({ open, onOpenChange, onImported }: Props)
               </div>
             </div>
             {result.errors.length > 0 && (
-              <ScrollArea className="h-40 border rounded-md p-3">
+              <div className="h-40 overflow-y-auto border rounded-md p-3">
                 <div className="space-y-1">
                   {result.errors.map((e, i) => (
                     <div key={i} className="text-xs text-destructive flex gap-2">
@@ -209,7 +209,7 @@ export function PurchasesImportDialog({ open, onOpenChange, onImported }: Props)
                     </div>
                   ))}
                 </div>
-              </ScrollArea>
+              </div>
             )}
           </div>
         )}
