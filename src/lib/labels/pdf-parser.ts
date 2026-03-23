@@ -1,10 +1,6 @@
-import * as pdfjsLib from 'pdfjs-dist'
 import type { ParsedLabel } from './types'
 
-// Set worker source for pdf.js (needed in browser)
-if (typeof window !== 'undefined') {
-  pdfjsLib.GlobalWorkerOptions.workerSrc = `//cdnjs.cloudflare.com/ajax/libs/pdf.js/${pdfjsLib.version}/pdf.worker.min.mjs`
-}
+let pdfjsInitialized = false
 
 /**
  * Parse all pages of a Flipkart label PDF and extract structured data.
@@ -14,6 +10,14 @@ export async function parseLabelPdf(
   file: File,
   fileIndex: number = 0,
 ): Promise<ParsedLabel[]> {
+  // Dynamic import to avoid SSR/prerender issues (pdfjs-dist needs DOMMatrix)
+  const pdfjsLib = await import('pdfjs-dist')
+
+  if (!pdfjsInitialized && typeof window !== 'undefined') {
+    pdfjsLib.GlobalWorkerOptions.workerSrc = `//cdnjs.cloudflare.com/ajax/libs/pdf.js/${pdfjsLib.version}/pdf.worker.min.mjs`
+    pdfjsInitialized = true
+  }
+
   const arrayBuffer = await file.arrayBuffer()
   const pdf = await pdfjsLib.getDocument({ data: arrayBuffer }).promise
   const labels: ParsedLabel[] = []
