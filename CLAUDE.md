@@ -1,7 +1,8 @@
 # FK-Tool — Claude Context
 
 > This file is read automatically at the start of every Claude Code session.
-> Keep it updated as the project evolves.
+> **Start every session by reading `docs/project-brain/ACTIVE.md`** — it has current focus, last session summary, and what's next.
+> For all remaining work, check `docs/project-brain/BUILD-TRACKER.md`.
 
 ---
 
