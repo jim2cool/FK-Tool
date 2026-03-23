@@ -1,7 +1,7 @@
 'use client'
 import Link from 'next/link'
 import { usePathname } from 'next/navigation'
-import { LayoutDashboard, Package, ShoppingCart, Receipt, Box, Calculator, Upload, BarChart3, Settings } from 'lucide-react'
+import { LayoutDashboard, Package, ShoppingCart, Receipt, Box, Tags, Calculator, Upload, BarChart3, Settings } from 'lucide-react'
 import { cn } from '@/lib/utils'
 
 const navItems = [
@@ -10,6 +10,7 @@ const navItems = [
   { href: '/purchases', label: 'Purchases', icon: ShoppingCart },
   { href: '/invoices', label: 'Invoices', icon: Receipt },
   { href: '/packaging', label: 'Packaging', icon: Box },
+  { href: '/labels', label: 'Labels', icon: Tags },
   { href: '/cogs', label: 'COGS', icon: Calculator },
   { href: '/imports', label: 'Import Data', icon: Upload },
   { href: '/inventory', label: 'Inventory & P&L', icon: BarChart3 },
