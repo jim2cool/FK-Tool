@@ -161,6 +161,25 @@ export async function POST(request: Request) {
       }
     }
 
+    // Check for duplicate name under the same parent (or at root level)
+    const dupQuery = supabase
+      .from('master_skus')
+      .select('id')
+      .eq('tenant_id', tenantId)
+      .eq('name', name)
+    if (parent_id) {
+      dupQuery.eq('parent_id', parent_id)
+    } else {
+      dupQuery.is('parent_id', null)
+    }
+    const { data: existing } = await dupQuery.maybeSingle()
+    if (existing) {
+      return NextResponse.json(
+        { error: `A ${parent_id ? 'variant' : 'product'} named "${name}" already exists` },
+        { status: 409 }
+      )
+    }
+
     const { data, error } = await supabase
       .from('master_skus')
       .insert({ tenant_id: tenantId, name, description, parent_id: parent_id ?? null, variant_attributes: variant_attributes ?? null })
