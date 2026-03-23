@@ -1,0 +1,24 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(git push origin main)",
+      "Bash(ssh -i ~/.ssh/id_ed25519 -o StrictHostKeyChecking=no root@46.225.117.86 \"cd /opt/fk-tool && bash deploy.sh\")",
+      "Bash(npx tsc --noEmit)",
+      "Bash(npm run build)",
+      "mcp__Claude_Preview__preview_start"
+    ]
+  },
+  "hooks": {
+    "PostToolUse": [
+      {
+        "matcher": "Bash",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash -c 'echo \"$CLAUDE_TOOL_INPUT\" | grep -qE \"git push|deploy\\.sh\" && echo \"[MEMORY REMINDER] You just pushed/deployed. After finishing this task, run /wrap-up to update project memory.\" || true'"
+          }
+        ]
+      }
+    ]
+  }
+}
