@@ -3,12 +3,13 @@ import { useState, useCallback } from 'react'
 import { useDropzone } from 'react-dropzone'
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog'
 import { Button } from '@/components/ui/button'
+import { Badge } from '@/components/ui/badge'
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'
 
-import { Upload, Download, CheckCircle2, XCircle, AlertCircle } from 'lucide-react'
+import { Upload, Download, CheckCircle2, XCircle, AlertCircle, Loader2 } from 'lucide-react'
 import { parsePurchasesCsv, type ParsedPurchaseRow, type PurchaseImportResult } from '@/lib/importers/purchases-csv-parser'
 
-type State = 'idle' | 'preview' | 'importing' | 'results'
+type State = 'idle' | 'checking' | 'preview' | 'importing' | 'results'
 
 interface Props {
   open: boolean
@@ -17,33 +18,50 @@ interface Props {
 }
 
 export function PurchasesImportDialog({ open, onOpenChange, onImported }: Props) {
-  const [state, setState] = useState<State>('idle')
-  const [csvText, setCsvText] = useState('')
-  const [rows, setRows] = useState<ParsedPurchaseRow[]>([])
-  const [result, setResult] = useState<PurchaseImportResult | null>(null)
+  const [state, setState]                   = useState<State>('idle')
+  const [csvText, setCsvText]               = useState('')
+  const [rows, setRows]                     = useState<ParsedPurchaseRow[]>([])
+  const [duplicateIndices, setDuplicateIndices] = useState<Set<number>>(new Set())
+  const [result, setResult]                 = useState<PurchaseImportResult | null>(null)
 
-  const validRows   = rows.filter(r => !r.error)
-  const invalidRows = rows.filter(r => r.error)
+  const validRows    = rows.filter(r => !r.error)
+  const invalidRows  = rows.filter(r => r.error)
+  const importable   = validRows.filter(r => !duplicateIndices.has(r.rowIndex))
+  const dupCount     = validRows.filter(r => duplicateIndices.has(r.rowIndex)).length
 
   const reset = useCallback(() => {
     setState('idle')
     setCsvText('')
     setRows([])
+    setDuplicateIndices(new Set())
     setResult(null)
   }, [])
 
-  const onDrop = useCallback((files: File[]) => {
+  const onDrop = useCallback(async (files: File[]) => {
     const file = files[0]
     if (!file) return
-    const reader = new FileReader()
-    reader.onload = (e) => {
-      const text = e.target?.result as string
-      const parsed = parsePurchasesCsv(text)
-      setCsvText(text)
-      setRows(parsed)
-      setState('preview')
+
+    const text = await file.text()
+    const parsed = parsePurchasesCsv(text)
+    setCsvText(text)
+    setRows(parsed)
+    setState('checking')
+
+    try {
+      const res = await fetch('/api/purchases/check-duplicates', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ rows: parsed }),
+      })
+      if (res.ok) {
+        const { duplicateRowIndices } = await res.json() as { duplicateRowIndices: number[] }
+        setDuplicateIndices(new Set(duplicateRowIndices))
+      }
+    } catch {
+      // If check fails, proceed without dedup info — not blocking
     }
-    reader.readAsText(file)
+
+    setState('preview')
   }, [])
 
   const { getRootProps, getInputProps, isDragActive } = useDropzone({
@@ -66,13 +84,16 @@ export function PurchasesImportDialog({ open, onOpenChange, onImported }: Props)
   }
 
   async function handleImport() {
-    if (validRows.length === 0) return
+    if (importable.length === 0) return
     setState('importing')
     try {
       const res = await fetch('/api/purchases/import-csv', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ csv: csvText }),
+        body: JSON.stringify({
+          csv: csvText,
+          skipRowIndices: [...duplicateIndices],
+        }),
       })
       const data: PurchaseImportResult = await res.json()
       setResult(data)
@@ -90,6 +111,7 @@ export function PurchasesImportDialog({ open, onOpenChange, onImported }: Props)
         <DialogHeader>
           <DialogTitle>
             {state === 'idle'      && 'Import Purchases'}
+            {state === 'checking'  && 'Checking for duplicates…'}
             {state === 'preview'   && 'Preview Import'}
             {state === 'importing' && 'Importing…'}
             {state === 'results'   && 'Import Complete'}
@@ -120,14 +142,28 @@ export function PurchasesImportDialog({ open, onOpenChange, onImported }: Props)
           </div>
         )}
 
+        {/* ── CHECKING ── */}
+        {state === 'checking' && (
+          <div className="flex-1 flex items-center justify-center gap-2 text-muted-foreground">
+            <Loader2 className="h-5 w-5 animate-spin" />
+            <span className="text-sm">Checking for duplicates…</span>
+          </div>
+        )}
+
         {/* ── PREVIEW / IMPORTING ── */}
         {(state === 'preview' || state === 'importing') && (
           <div className="flex flex-col space-y-3">
             <div className="flex items-center gap-4 text-sm">
               <span className="flex items-center gap-1 text-green-600">
                 <CheckCircle2 className="h-4 w-4" />
-                {validRows.length} valid
+                {importable.length} ready to import
               </span>
+              {dupCount > 0 && (
+                <span className="flex items-center gap-1 text-yellow-600">
+                  <AlertCircle className="h-4 w-4" />
+                  {dupCount} duplicate{dupCount > 1 ? 's' : ''} (will be skipped)
+                </span>
+              )}
               {invalidRows.length > 0 && (
                 <span className="flex items-center gap-1 text-destructive">
                   <XCircle className="h-4 w-4" />
@@ -153,29 +189,42 @@ export function PurchasesImportDialog({ open, onOpenChange, onImported }: Props)
                   </TableRow>
                 </TableHeader>
                 <TableBody>
-                  {rows.map((row) => (
-                    <TableRow key={row.rowIndex} className={row.error ? 'bg-destructive/5' : ''}>
-                      <TableCell className="text-xs text-muted-foreground">{row.rowIndex}</TableCell>
-                      <TableCell className="text-sm">{row.date}</TableCell>
-                      <TableCell className="text-sm font-medium">{row.master}</TableCell>
-                      <TableCell className="text-sm text-muted-foreground">{row.variant || '—'}</TableCell>
-                      <TableCell className="text-sm text-right tabular-nums">{row.qty || '—'}</TableCell>
-                      <TableCell className="text-sm text-right tabular-nums">
-                        {row.ratePerUnit ? `₹${row.ratePerUnit}` : '—'}
-                      </TableCell>
-                      <TableCell className="text-sm">{row.gstRateSlab}</TableCell>
-                      <TableCell className="text-sm">{row.taxPaid ? 'Y' : 'N'}</TableCell>
-                      <TableCell className="text-sm text-muted-foreground">{row.vendorName || '—'}</TableCell>
-                      <TableCell className="text-sm">{row.warehouseName}</TableCell>
-                      <TableCell>
-                        {row.error ? (
-                          <span className="text-xs text-destructive">{row.error}</span>
-                        ) : (
-                          <CheckCircle2 className="h-4 w-4 text-green-600" />
-                        )}
-                      </TableCell>
-                    </TableRow>
-                  ))}
+                  {rows.map((row) => {
+                    const isDup = !row.error && duplicateIndices.has(row.rowIndex)
+                    return (
+                      <TableRow
+                        key={row.rowIndex}
+                        className={
+                          row.error ? 'bg-destructive/5' :
+                          isDup     ? 'bg-yellow-50 dark:bg-yellow-950/20' : ''
+                        }
+                      >
+                        <TableCell className="text-xs text-muted-foreground">{row.rowIndex}</TableCell>
+                        <TableCell className="text-sm">{row.date}</TableCell>
+                        <TableCell className="text-sm font-medium">{row.master}</TableCell>
+                        <TableCell className="text-sm text-muted-foreground">{row.variant || '—'}</TableCell>
+                        <TableCell className="text-sm text-right tabular-nums">{row.qty || '—'}</TableCell>
+                        <TableCell className="text-sm text-right tabular-nums">
+                          {row.ratePerUnit ? `₹${row.ratePerUnit}` : '—'}
+                        </TableCell>
+                        <TableCell className="text-sm">{row.gstRateSlab}</TableCell>
+                        <TableCell className="text-sm">{row.taxPaid ? 'Y' : 'N'}</TableCell>
+                        <TableCell className="text-sm text-muted-foreground">{row.vendorName || '—'}</TableCell>
+                        <TableCell className="text-sm">{row.warehouseName}</TableCell>
+                        <TableCell>
+                          {row.error ? (
+                            <span className="text-xs text-destructive">{row.error}</span>
+                          ) : isDup ? (
+                            <Badge variant="outline" className="text-yellow-700 border-yellow-400 bg-yellow-50 dark:bg-yellow-950/30 text-xs">
+                              Duplicate
+                            </Badge>
+                          ) : (
+                            <CheckCircle2 className="h-4 w-4 text-green-600" />
+                          )}
+                        </TableCell>
+                      </TableRow>
+                    )
+                  })}
                 </TableBody>
               </Table>
             </div>
@@ -218,11 +267,19 @@ export function PurchasesImportDialog({ open, onOpenChange, onImported }: Props)
           {state === 'idle' && (
             <Button variant="outline" onClick={() => onOpenChange(false)}>Cancel</Button>
           )}
+          {state === 'checking' && (
+            <Button disabled>
+              <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+              Checking…
+            </Button>
+          )}
           {state === 'preview' && (
             <>
               <Button variant="outline" onClick={reset}>Back</Button>
-              <Button onClick={handleImport} disabled={validRows.length === 0}>
-                Import {validRows.length} {validRows.length === 1 ? 'row' : 'rows'} →
+              <Button onClick={handleImport} disabled={importable.length === 0}>
+                Import {importable.length} {importable.length === 1 ? 'row' : 'rows'}
+                {dupCount > 0 && ` (skip ${dupCount} duplicate${dupCount > 1 ? 's' : ''})`}
+                {' →'}
               </Button>
             </>
           )}

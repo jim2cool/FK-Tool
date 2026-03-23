@@ -6,13 +6,14 @@ export async function POST(req: NextRequest) {
   try {
     const tenantId = await getTenantId()
     const body = await req.json()
-    const { csv } = body as { csv: string }
+    const { csv, skipRowIndices } = body as { csv: string; skipRowIndices?: number[] }
 
     if (!csv || typeof csv !== 'string') {
       return NextResponse.json({ error: 'csv field is required' }, { status: 400 })
     }
 
-    const result = await importPurchasesCsv(csv, tenantId)
+    const skipSet = skipRowIndices?.length ? new Set(skipRowIndices) : undefined
+    const result = await importPurchasesCsv(csv, tenantId, skipSet)
     return NextResponse.json(result)
   } catch (e: unknown) {
     const msg = (e as Error).message

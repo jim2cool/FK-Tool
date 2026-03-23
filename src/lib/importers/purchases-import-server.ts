@@ -10,7 +10,8 @@ export type { PurchaseImportResult } from './purchases-csv-parser'
 
 export async function importPurchasesCsv(
   csvText: string,
-  tenantId: string
+  tenantId: string,
+  skipRowIndices?: Set<number>,
 ): Promise<PurchaseImportResult> {
   const supabase = await createClient()
 
@@ -42,6 +43,11 @@ export async function importPurchasesCsv(
     if (row.error) {
       skipped++
       errors.push({ row: row.rowIndex, reason: row.error })
+      continue
+    }
+
+    if (skipRowIndices?.has(row.rowIndex)) {
+      skipped++
       continue
     }
 
