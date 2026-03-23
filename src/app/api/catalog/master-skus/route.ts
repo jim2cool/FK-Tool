@@ -90,8 +90,10 @@ export async function GET(request: Request) {
         .filter(v => v.parent_id === sku.id)
         .map(v => ({ ...v, warehouse_summaries: summaryMap[v.id] ?? [] }))
 
+      // Include the parent SKU's own purchases too — handles legacy purchases
+      // saved against the parent ID before the variant dropdown bug was fixed.
       const warehouseSummaries = variants.length > 0
-        ? aggregateSummaries(variants.map(v => v.id))
+        ? aggregateSummaries([sku.id, ...variants.map(v => v.id)])
         : (summaryMap[sku.id] ?? [])
 
       return { ...sku, variants, warehouse_summaries: warehouseSummaries }
