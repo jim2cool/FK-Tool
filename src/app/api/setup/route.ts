@@ -25,7 +25,7 @@ export async function POST(request: Request) {
   if (tenantError) return NextResponse.json({ error: tenantError.message }, { status: 500 })
 
   const { error: profileError } = await admin.from('user_profiles').insert({
-    id: user.id, tenant_id: tenant.id, email: user.email!, role: 'admin'
+    id: user.id, tenant_id: tenant.id, email: user.email!, role: 'owner'
   })
   if (profileError) return NextResponse.json({ error: profileError.message }, { status: 500 })
 

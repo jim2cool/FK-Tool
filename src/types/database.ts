@@ -10,9 +10,30 @@ export type ReportType =
   | 'sku_mapping'
   | 'procurement'
 
+export type UserRole = 'owner' | 'admin' | 'manager' | 'staff' | 'member'
+
 export interface Tenant {
   id: string
   name: string
+  created_at: string
+}
+
+export interface Organization {
+  id: string
+  tenant_id: string
+  name: string
+  legal_name: string | null
+  gst_number: string | null
+  billing_address: string | null
+  created_at: string
+}
+
+export interface UserProfile {
+  id: string
+  tenant_id: string
+  email: string
+  role: UserRole
+  organization_id: string | null
   created_at: string
 }
 
@@ -30,6 +51,7 @@ export interface MarketplaceAccount {
   platform: Platform
   account_name: string
   mode: ConnectorMode
+  organization_id: string | null
   created_at: string
 }
 
