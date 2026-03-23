@@ -95,6 +95,8 @@ delivery_rate   NUMERIC(5,4)  DEFAULT 1.0    -- historical delivered÷dispatched
 | Purchases API | `src/app/api/purchases/route.ts` |
 | Purchases CSV parser (client-safe) | `src/lib/importers/purchases-csv-parser.ts` |
 | Purchases CSV importer (server) | `src/lib/importers/purchases-import-server.ts` |
+| Purchases duplicate-check API | `src/app/api/purchases/check-duplicates/route.ts` |
+| Purchases import dialog (with dedup UI) | `src/components/purchases/PurchasesImportDialog.tsx` |
 | Catalog page (UI) | `src/app/(dashboard)/catalog/page.tsx` |
 | Catalog master-SKUs API | `src/app/api/catalog/master-skus/route.ts` |
 | Catalog CSV import API | `src/app/api/catalog/import-csv/route.ts` |
@@ -161,13 +163,33 @@ Dashboard → Master Catalog → Purchases → Invoices → Packaging → COGS �
 
 ## ✅ COGS System — Complete
 
-All 4 phases shipped. Full COGS system is implemented. Remaining action:
+All 4 phases shipped. Full COGS system is implemented and deployed.
 
-- **Task 13:** `npx tsc --noEmit` → merge worktree to `main` → `git push origin main` → deploy to Hetzner → smoke test
-
-### Bugs fixed this session
+### Bugs fixed (previous session)
 - **MasterSku field name gotcha:** `packaging/page.tsx` SKU Specs tab was using `sku.sku_code` / `sku.product_name` which don't exist on the type — actual field is `sku.name`. Always check the `MasterSku` type; only `id`, `name`, `sku_code` (wait — only `name` comes back from the API join).
 - **Catalog API `total_cogs` remnant:** `master-skus/route.ts` still referenced the dropped `total_cogs` column in the warehouse aggregation query — removed it.
+
+---
+
+## ✅ Duplicate Detection — Complete (2026-03-23)
+
+### Purchases CSV import dedup
+- **New file:** `src/app/api/purchases/check-duplicates/route.ts`
+- After CSV parse, dialog calls this endpoint with parsed rows
+- Server resolves SKU/warehouse names → IDs, builds fingerprints, queries ALL purchases in DB (not just current page), flags DB matches AND within-file duplicate rows
+- Returns `{ duplicateRowIndices: number[] }`
+- Preview table shows duplicate rows in yellow with "Duplicate" badge; Import button shows "skip N duplicates"
+- `import-csv/route.ts` accepts `skipRowIndices?: number[]`; `purchases-import-server.ts` skips those row indices
+- **Duplicate key:** `master_sku_id + warehouse_id + purchase_date + quantity + unit_purchase_price + supplier`
+
+### Catalog manual-add dedup
+- `POST /api/catalog/master-skus` now checks for existing SKU with same `name + parent_id` before inserting
+- Returns 409 with message like `"A product named 'X' already exists"` — surfaces as toast in UI
+- CSV catalog import was already safe (used `maybeSingle()` lookups)
+
+### Catalog warehouse aggregation fix
+- **Root cause:** `aggregateSummaries()` in `master-skus/route.ts` only checked variant IDs when a parent had variants — purchases saved against the parent ID (legacy from old dropdown bug) were silently ignored
+- **Fix:** Pass `[sku.id, ...variants.map(v => v.id)]` so parent-level purchases are included
 
 ---
 
@@ -189,11 +211,9 @@ All 4 phases shipped. Full COGS system is implemented. Remaining action:
 
 ## 🔄 Catalog Page — Warehouse Display
 
-The catalog page shows per-warehouse stock and COGS by aggregating across purchases. For a product to show warehouse info:
-1. Purchases must exist for that SKU in the `purchases` table
-2. The `master_sku_id` on the purchase must match the exact variant (not parent) SKU id
+The catalog page shows per-warehouse stock by aggregating across purchases. The aggregation now includes both the parent SKU ID and all variant IDs, so legacy purchases saved against the parent ID are also visible.
 
-If warehouse shows "—" it usually means purchases haven't been imported yet, or the wrong SKU ID was used (e.g. parent ID instead of variant ID).
+If warehouse still shows "—" it means purchases haven't been imported yet for that SKU.
 
 ---
 
