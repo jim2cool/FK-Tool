@@ -94,16 +94,25 @@ function SortLabelsTab({ profiles, onNeedProfile }: {
       const skuLookup = new Map<string, {
         masterSkuId: string | null; masterSkuName: string | null
         marketplaceAccountId: string | null; organizationId: string | null
+        isCombo: boolean; comboProductId: string | null; comboProductName: string | null
+        components: Array<{ masterSkuId: string; masterSkuName: string; quantity: number }> | null
       }>()
       for (const r of resolvedMap) skuLookup.set(r.platformSku, r)
 
-      const resolved: ResolvedLabel[] = allLabels.map(label => ({
-        ...label,
-        masterSkuId: skuLookup.get(label.platformSku)?.masterSkuId ?? null,
-        masterSkuName: skuLookup.get(label.platformSku)?.masterSkuName ?? null,
-        marketplaceAccountId: skuLookup.get(label.platformSku)?.marketplaceAccountId ?? null,
-        organizationId: skuLookup.get(label.platformSku)?.organizationId ?? null,
-      }))
+      const resolved: ResolvedLabel[] = allLabels.map(label => {
+        const lookup = skuLookup.get(label.platformSku)
+        return {
+          ...label,
+          masterSkuId: lookup?.masterSkuId ?? null,
+          masterSkuName: lookup?.masterSkuName ?? null,
+          marketplaceAccountId: lookup?.marketplaceAccountId ?? null,
+          organizationId: lookup?.organizationId ?? null,
+          isCombo: lookup?.isCombo ?? false,
+          comboProductId: lookup?.comboProductId ?? null,
+          comboProductName: lookup?.comboProductName ?? null,
+          components: lookup?.components ?? null,
+        }
+      })
 
       setResolvedLabels(resolved)
       setSortResult(buildSortResult(resolved))
@@ -159,15 +168,35 @@ function SortLabelsTab({ profiles, onNeedProfile }: {
     if (!sortResult || !selectedWarehouse) return
     setState('ingesting')
     try {
-      const mappedLabels = resolvedLabels.filter(l => l.masterSkuId)
       const today = new Date().toISOString().split('T')[0]
 
-      const res = await fetch('/api/labels/ingest', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          warehouseId: selectedWarehouse,
-          labels: mappedLabels.map(l => ({
+      // Build ingest labels: expand combos into one entry per component
+      const ingestLabels: Array<{
+        orderId: string; masterSkuId: string; marketplaceAccountId: string | null
+        quantity: number; salePrice: number | null; paymentType: string
+        platformSku: string; dispatchDate: string; courier: string; awbNumber: string
+        isCombo?: boolean; components?: Array<{ masterSkuId: string; quantity: number }>
+      }> = []
+
+      for (const l of resolvedLabels) {
+        if (l.isCombo && l.components?.length) {
+          // Combo: send as combo for server to expand
+          ingestLabels.push({
+            orderId: l.orderId,
+            masterSkuId: '', // not used for combos
+            marketplaceAccountId: l.marketplaceAccountId,
+            quantity: 1,
+            salePrice: l.salePrice,
+            paymentType: l.paymentType,
+            platformSku: l.platformSku,
+            dispatchDate: today,
+            courier: l.courier,
+            awbNumber: l.awbNumber,
+            isCombo: true,
+            components: l.components.map(c => ({ masterSkuId: c.masterSkuId, quantity: c.quantity })),
+          })
+        } else if (l.masterSkuId) {
+          ingestLabels.push({
             orderId: l.orderId,
             masterSkuId: l.masterSkuId,
             marketplaceAccountId: l.marketplaceAccountId,
@@ -178,7 +207,16 @@ function SortLabelsTab({ profiles, onNeedProfile }: {
             dispatchDate: today,
             courier: l.courier,
             awbNumber: l.awbNumber,
-          })),
+          })
+        }
+      }
+
+      const res = await fetch('/api/labels/ingest', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          warehouseId: selectedWarehouse,
+          labels: ingestLabels,
         }),
       })
 
@@ -189,11 +227,15 @@ function SortLabelsTab({ profiles, onNeedProfile }: {
     finally { setState('ready') }
   }
 
-  function handleSkuMapped(platformSku: string, masterSkuId: string) {
-    const skuName = masterSkus.find(s => s.id === masterSkuId)?.name ?? ''
-    const updated = resolvedLabels.map(l =>
-      l.platformSku === platformSku ? { ...l, masterSkuId, masterSkuName: skuName } : l
-    )
+  function handleSkuMapped(platformSku: string, result: import('@/components/labels/UnmappedSkuPanel').MappingResult) {
+    const updated = resolvedLabels.map(l => {
+      if (l.platformSku !== platformSku) return l
+      if (result.type === 'simple') {
+        return { ...l, masterSkuId: result.masterSkuId, masterSkuName: result.masterSkuName, isCombo: false, comboProductId: null, comboProductName: null, components: null }
+      }
+      // Combo mapping
+      return { ...l, masterSkuId: null, masterSkuName: null, isCombo: true, comboProductId: result.comboProductId, comboProductName: result.comboProductName, components: result.components }
+    })
     setResolvedLabels(updated)
     setSortResult(buildSortResult(updated))
   }
@@ -490,7 +532,8 @@ function buildSortResult(labels: ResolvedLabel[]): LabelSortResult {
   const groups = groupLabelsByProduct(labels)
   const unmappedMap = new Map<string, UnmappedSku>()
   for (const label of labels) {
-    if (!label.masterSkuId) {
+    // Combo labels are resolved (not unmapped), even though masterSkuId is null
+    if (!label.masterSkuId && !label.isCombo) {
       const existing = unmappedMap.get(label.platformSku)
       if (existing) { existing.count++; existing.pages.push({ fileIndex: label.fileIndex, pageIndex: label.pageIndex }) }
       else unmappedMap.set(label.platformSku, { platformSku: label.platformSku, productDescription: label.productDescription, count: 1, pages: [{ fileIndex: label.fileIndex, pageIndex: label.pageIndex }] })

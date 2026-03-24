@@ -102,14 +102,13 @@ export async function cropAndGroupInvoices(
 
 /**
  * Group resolved labels by master SKU.
+ * Combo labels are expanded: the same page appears in each component product's group.
  */
 export function groupLabelsByProduct(labels: ResolvedLabel[]): LabelGroup[] {
   const groups = new Map<string, LabelGroup>()
 
-  for (const label of labels) {
-    if (!label.masterSkuId || !label.masterSkuName) continue
-
-    const existing = groups.get(label.masterSkuId)
+  function addToGroup(skuId: string, skuName: string, label: ResolvedLabel) {
+    const existing = groups.get(skuId)
     if (existing) {
       existing.count++
       existing.pages.push({ fileIndex: label.fileIndex, pageIndex: label.pageIndex })
@@ -121,9 +120,9 @@ export function groupLabelsByProduct(labels: ResolvedLabel[]): LabelGroup[] {
       if (orgEntry) orgEntry.count++
       else existing.orgBreakdown.push({ orgName, count: 1 })
     } else {
-      groups.set(label.masterSkuId, {
-        masterSkuId: label.masterSkuId,
-        masterSkuName: label.masterSkuName,
+      groups.set(skuId, {
+        masterSkuId: skuId,
+        masterSkuName: skuName,
         count: 1,
         pages: [{ fileIndex: label.fileIndex, pageIndex: label.pageIndex }],
         orgBreakdown: [{ orgName: label.sellerName || 'Unknown', count: 1 }],
@@ -131,6 +130,20 @@ export function groupLabelsByProduct(labels: ResolvedLabel[]): LabelGroup[] {
         prepaidCount: label.paymentType === 'PREPAID' ? 1 : 0,
       })
     }
+  }
+
+  for (const label of labels) {
+    // Combo label: expand into each component product's group
+    if (label.isCombo && label.components?.length) {
+      for (const comp of label.components) {
+        addToGroup(comp.masterSkuId, comp.masterSkuName, label)
+      }
+      continue
+    }
+
+    // Simple label
+    if (!label.masterSkuId || !label.masterSkuName) continue
+    addToGroup(label.masterSkuId, label.masterSkuName, label)
   }
 
   return Array.from(groups.values()).sort((a, b) => b.count - a.count)

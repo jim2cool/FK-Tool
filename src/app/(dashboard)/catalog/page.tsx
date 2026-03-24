@@ -8,7 +8,9 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip'
+import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs'
 import { CsvImportDialog } from '@/components/catalog/CsvImportDialog'
+import { CombosTab } from '@/components/catalog/CombosTab'
 import { exportCsv, todayString } from '@/lib/utils/csv-export'
 import { toast } from 'sonner'
 import { AlertTriangle, Download, HelpCircle, Pencil, Upload, X } from 'lucide-react'
@@ -420,7 +422,22 @@ export default function CatalogPage() {
               Connect master products to platform SKU IDs across channels and accounts
             </p>
           </div>
-          <div className="flex items-center gap-2">
+        </div>
+
+        <Tabs defaultValue="products">
+          <TabsList>
+            <TabsTrigger value="products">Products</TabsTrigger>
+            <TabsTrigger value="combos">Combos</TabsTrigger>
+          </TabsList>
+
+          <TabsContent value="combos" className="mt-4">
+            <CombosTab />
+          </TabsContent>
+
+          <TabsContent value="products" className="mt-4">
+
+        {/* Products tab action bar */}
+        <div className="flex items-center justify-end gap-2">
             <Button
               variant="outline"
               className="border-red-500 text-red-500 hover:bg-red-50 hover:text-red-600"
@@ -437,7 +454,6 @@ export default function CatalogPage() {
               Bulk Import
             </Button>
           </div>
-        </div>
 
         {/* Stocked-but-unmapped banner */}
         {!loading && stockedUnmappedCount > 0 && (
@@ -799,6 +815,9 @@ export default function CatalogPage() {
             </DialogFooter>
           </DialogContent>
         </Dialog>
+
+          </TabsContent>
+        </Tabs>
 
       </div>
     </TooltipProvider>

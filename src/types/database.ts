@@ -71,10 +71,27 @@ export interface MasterSku {
 export interface SkuMapping {
   id: string
   tenant_id: string
-  master_sku_id: string
+  master_sku_id: string | null
   platform: Platform
   platform_sku: string
   marketplace_account_id: string | null
+  combo_product_id: string | null
+  created_at: string
+}
+
+export interface ComboProduct {
+  id: string
+  tenant_id: string
+  name: string
+  is_archived: boolean
+  created_at: string
+}
+
+export interface ComboProductComponent {
+  id: string
+  combo_product_id: string
+  master_sku_id: string
+  quantity: number
   created_at: string
 }
 

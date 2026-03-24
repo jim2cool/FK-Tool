@@ -32,12 +32,23 @@ export interface ParsedLabel {
   sourceFile: string
 }
 
+/** A component of a combo product */
+export interface ComboComponent {
+  masterSkuId: string
+  masterSkuName: string
+  quantity: number
+}
+
 /** Result of resolving a platform SKU to a master SKU */
 export interface ResolvedLabel extends ParsedLabel {
   masterSkuId: string | null
   masterSkuName: string | null
   marketplaceAccountId: string | null
   organizationId: string | null
+  isCombo: boolean
+  comboProductId: string | null
+  comboProductName: string | null
+  components: ComboComponent[] | null
 }
 
 /** Group of labels for the same master product */
