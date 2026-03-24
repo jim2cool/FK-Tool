@@ -88,7 +88,7 @@ export function CombosTab() {
   function openCreate() {
     setEditingId(null)
     setComboName('')
-    setComponents([{ masterSkuId: '', quantity: 1 }, { masterSkuId: '', quantity: 1 }])
+    setComponents([{ masterSkuId: '', quantity: 1 }])
     setDialogOpen(true)
   }
 
@@ -104,7 +104,7 @@ export function CombosTab() {
   }
 
   function removeComponent(index: number) {
-    if (components.length <= 2) return
+    if (components.length <= 1) return
     setComponents(prev => prev.filter((_, i) => i !== index))
   }
 
@@ -115,7 +115,7 @@ export function CombosTab() {
   async function handleSave() {
     if (!comboName.trim()) { toast.error('Combo name is required'); return }
     const validComponents = components.filter(c => c.masterSkuId && c.quantity > 0)
-    if (validComponents.length < 2) { toast.error('A combo must have at least 2 components'); return }
+    if (!validComponents.length) { toast.error('A combo must have at least 1 component'); return }
 
     // Check for duplicate master SKUs
     const skuIds = validComponents.map(c => c.masterSkuId)
@@ -298,7 +298,7 @@ export function CombosTab() {
                       variant="ghost"
                       size="icon"
                       className="h-7 w-7 shrink-0"
-                      disabled={components.length <= 2}
+                      disabled={components.length <= 1}
                       onClick={() => removeComponent(index)}
                     >
                       <X className="h-3.5 w-3.5" />

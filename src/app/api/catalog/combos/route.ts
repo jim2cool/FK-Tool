@@ -88,8 +88,8 @@ export async function POST(request: Request) {
     if (!name?.trim()) {
       return NextResponse.json({ error: 'Combo name is required' }, { status: 400 })
     }
-    if (!components?.length || components.length < 2) {
-      return NextResponse.json({ error: 'A combo must have at least 2 components' }, { status: 400 })
+    if (!components?.length) {
+      return NextResponse.json({ error: 'A combo must have at least 1 component' }, { status: 400 })
     }
 
     // Check for duplicate name
@@ -170,8 +170,8 @@ export async function PATCH(request: Request) {
 
     // Replace components if provided
     if (components) {
-      if (components.length < 2) {
-        return NextResponse.json({ error: 'A combo must have at least 2 components' }, { status: 400 })
+      if (!components.length) {
+        return NextResponse.json({ error: 'A combo must have at least 1 component' }, { status: 400 })
       }
 
       // Delete existing components
