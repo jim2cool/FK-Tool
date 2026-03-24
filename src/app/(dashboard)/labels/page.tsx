@@ -296,6 +296,7 @@ function CropProfilesTab({ profiles, onProfilesChanged }: {
   const [sampleFile, setSampleFile] = useState<File | null>(null)
   const [showCreator, setShowCreator] = useState(false)
   const [editingProfile, setEditingProfile] = useState<CropProfile | null>(null)
+  const [creatorKey, setCreatorKey] = useState(0) // force remount on new creation
 
   function handleDeleteProfile(name: string) {
     const updated = profiles.filter(p => p.name !== name)
@@ -370,7 +371,7 @@ function CropProfilesTab({ profiles, onProfilesChanged }: {
       )}
 
       {!showCreator && profiles.length > 0 && (
-        <Button variant="outline" onClick={() => { setShowCreator(true); setEditingProfile(null) }}>Create New Profile</Button>
+        <Button variant="outline" onClick={() => { setShowCreator(true); setEditingProfile(null); setSampleFile(null); setCreatorKey(k => k + 1) }}>Create New Profile</Button>
       )}
 
       {showCreator && !sampleFile && (
@@ -384,6 +385,7 @@ function CropProfilesTab({ profiles, onProfilesChanged }: {
 
       {showCreator && sampleFile && (
         <LabelCropSelector
+          key={creatorKey}
           file={sampleFile}
           profiles={profiles}
           mode="save"
