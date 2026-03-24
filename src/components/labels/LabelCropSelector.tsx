@@ -58,6 +58,8 @@ export function saveProfiles(profiles: CropProfile[]) {
 interface LabelCropSelectorProps {
   file: File
   profiles: CropProfile[]
+  /** 'save' = profile creation (Crop Profiles tab), 'sort' = direct sorting (Sort tab fallback) */
+  mode?: 'save' | 'sort'
   onCropConfirmed: (crop: CropBox, labelSize: LabelSize, profileName: string) => void
   onCancel: () => void
   onProfilesChanged: (profiles: CropProfile[]) => void
@@ -66,7 +68,7 @@ interface LabelCropSelectorProps {
 const CANVAS_MAX_WIDTH = 500
 const CANVAS_MAX_HEIGHT = 700
 
-export function LabelCropSelector({ file, profiles, onCropConfirmed, onCancel, onProfilesChanged }: LabelCropSelectorProps) {
+export function LabelCropSelector({ file, profiles, mode = 'save', onCropConfirmed, onCancel, onProfilesChanged }: LabelCropSelectorProps) {
   const canvasRef = useRef<HTMLCanvasElement>(null)
   const overlayRef = useRef<HTMLCanvasElement>(null)
   const [canvasSize, setCanvasSize] = useState({ width: 0, height: 0 })
@@ -318,32 +320,49 @@ export function LabelCropSelector({ file, profiles, onCropConfirmed, onCancel, o
 
       {/* Action buttons */}
       <div className="flex items-center gap-3 flex-wrap">
-        <Button
-          onClick={() => cropBox && onCropConfirmed(cropBox, labelSize, selectedProfile)}
-          disabled={!cropBox}
-        >
-          Apply Crop & Sort Labels
-        </Button>
-
-        {cropBox && !showSaveInput && (
-          <Button variant="outline" size="sm" onClick={() => setShowSaveInput(true)}>
-            Save as Profile
-          </Button>
-        )}
-
-        {showSaveInput && (
-          <div className="flex items-center gap-2">
+        {mode === 'save' ? (
+          /* Profile creation mode — always show name input + save */
+          <>
             <Input
-              className="w-[180px] h-8"
+              className="w-[200px] h-9"
               placeholder="Profile name (e.g. Flipkart)"
               value={newProfileName}
               onChange={e => setNewProfileName(e.target.value)}
               onKeyDown={e => e.key === 'Enter' && handleSaveProfile()}
-              autoFocus
             />
-            <Button size="sm" onClick={handleSaveProfile} disabled={!newProfileName.trim()}>Save</Button>
-            <Button variant="ghost" size="sm" onClick={() => setShowSaveInput(false)}>Cancel</Button>
-          </div>
+            <Button onClick={handleSaveProfile} disabled={!cropBox || !newProfileName.trim()}>
+              Save Profile
+            </Button>
+          </>
+        ) : (
+          /* Sort mode — apply crop directly */
+          <>
+            <Button
+              onClick={() => cropBox && onCropConfirmed(cropBox, labelSize, selectedProfile)}
+              disabled={!cropBox}
+            >
+              Apply Crop & Sort Labels
+            </Button>
+            {cropBox && !showSaveInput && (
+              <Button variant="outline" size="sm" onClick={() => setShowSaveInput(true)}>
+                Save as Profile
+              </Button>
+            )}
+            {showSaveInput && (
+              <div className="flex items-center gap-2">
+                <Input
+                  className="w-[180px] h-8"
+                  placeholder="Profile name (e.g. Flipkart)"
+                  value={newProfileName}
+                  onChange={e => setNewProfileName(e.target.value)}
+                  onKeyDown={e => e.key === 'Enter' && handleSaveProfile()}
+                  autoFocus
+                />
+                <Button size="sm" onClick={handleSaveProfile} disabled={!newProfileName.trim()}>Save</Button>
+                <Button variant="ghost" size="sm" onClick={() => setShowSaveInput(false)}>Cancel</Button>
+              </div>
+            )}
+          </>
         )}
 
         <Button variant="ghost" onClick={onCancel}>Cancel</Button>

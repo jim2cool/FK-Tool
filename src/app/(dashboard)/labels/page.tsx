@@ -359,6 +359,7 @@ function CropProfilesTab({ profiles, onProfilesChanged }: {
         <LabelCropSelector
           file={sampleFile}
           profiles={profiles}
+          mode="save"
           onCropConfirmed={handleCropConfirmed}
           onCancel={() => { setSampleFile(null); setShowCreator(false) }}
           onProfilesChanged={onProfilesChanged}
