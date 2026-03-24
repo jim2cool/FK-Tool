@@ -293,10 +293,11 @@ function CropProfilesTab({ profiles, onProfilesChanged }: {
   profiles: CropProfile[]
   onProfilesChanged: (profiles: CropProfile[]) => void
 }) {
+  // 'closed' | 'upload' | 'crop' — explicit step prevents stale state
+  const [creatorStep, setCreatorStep] = useState<'closed' | 'upload' | 'crop'>('closed')
   const [sampleFile, setSampleFile] = useState<File | null>(null)
-  const [showCreator, setShowCreator] = useState(false)
   const [editingProfile, setEditingProfile] = useState<CropProfile | null>(null)
-  const [creatorKey, setCreatorKey] = useState(0) // force remount on new creation
+  const [creatorKey, setCreatorKey] = useState(0)
 
   function handleDeleteProfile(name: string) {
     const updated = profiles.filter(p => p.name !== name)
@@ -308,16 +309,32 @@ function CropProfilesTab({ profiles, onProfilesChanged }: {
   function handleEditProfile(profile: CropProfile) {
     setEditingProfile(profile)
     setSampleFile(null)
-    setShowCreator(true)
+    setCreatorStep('upload')
+    setCreatorKey(k => k + 1)
   }
 
-  function handleCropConfirmed(_crop: CropBox, _labelSize: LabelSize, profileName: string) {
-    // Profile already saved inside LabelCropSelector's handleSaveProfile
-    if (profileName) {
-      setSampleFile(null)
-      setShowCreator(false)
-      setEditingProfile(null)
-    }
+  function handleFileSelected(files: File[]) {
+    setSampleFile(files[0])
+    setCreatorStep('crop')
+  }
+
+  function handleCropConfirmed() {
+    setSampleFile(null)
+    setCreatorStep('closed')
+    setEditingProfile(null)
+  }
+
+  function handleCreatorCancel() {
+    setSampleFile(null)
+    setCreatorStep('closed')
+    setEditingProfile(null)
+  }
+
+  function handleStartCreate() {
+    setEditingProfile(null)
+    setSampleFile(null)
+    setCreatorStep('upload')
+    setCreatorKey(k => k + 1)
   }
 
   return (
@@ -363,27 +380,27 @@ function CropProfilesTab({ profiles, onProfilesChanged }: {
         </div>
       )}
 
-      {profiles.length === 0 && !showCreator && (
+      {profiles.length === 0 && creatorStep === 'closed' && (
         <div className="text-center py-8 border rounded-lg bg-muted/30">
           <p className="text-muted-foreground mb-3">No crop profiles yet. Create one to start sorting labels.</p>
-          <Button onClick={() => setShowCreator(true)}>Create First Profile</Button>
+          <Button onClick={handleStartCreate}>Create First Profile</Button>
         </div>
       )}
 
-      {!showCreator && profiles.length > 0 && (
-        <Button variant="outline" onClick={() => { setShowCreator(true); setEditingProfile(null); setSampleFile(null); setCreatorKey(k => k + 1) }}>Create New Profile</Button>
+      {creatorStep === 'closed' && profiles.length > 0 && (
+        <Button variant="outline" onClick={handleStartCreate}>Create New Profile</Button>
       )}
 
-      {showCreator && !sampleFile && (
+      {creatorStep === 'upload' && (
         <div className="space-y-3">
           <h3 className="font-medium">{editingProfile ? `Edit Profile: ${editingProfile.name}` : 'Upload a sample PDF'}</h3>
           <p className="text-sm text-muted-foreground">Upload any label PDF to use as a reference for drawing the crop area.</p>
-          <LabelUploadZone onFilesSelected={(files) => setSampleFile(files[0])} disabled={false} />
-          <Button variant="ghost" onClick={() => { setShowCreator(false); setEditingProfile(null) }}>Cancel</Button>
+          <LabelUploadZone onFilesSelected={handleFileSelected} disabled={false} />
+          <Button variant="ghost" onClick={handleCreatorCancel}>Cancel</Button>
         </div>
       )}
 
-      {showCreator && sampleFile && (
+      {creatorStep === 'crop' && sampleFile && (
         <LabelCropSelector
           key={creatorKey}
           file={sampleFile}
@@ -391,7 +408,7 @@ function CropProfilesTab({ profiles, onProfilesChanged }: {
           mode="save"
           editProfile={editingProfile ?? undefined}
           onCropConfirmed={handleCropConfirmed}
-          onCancel={() => { setSampleFile(null); setShowCreator(false); setEditingProfile(null) }}
+          onCancel={handleCreatorCancel}
           onProfilesChanged={onProfilesChanged}
         />
       )}
