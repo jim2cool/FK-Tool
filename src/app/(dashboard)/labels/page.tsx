@@ -293,11 +293,12 @@ function CropProfilesTab({ profiles, onProfilesChanged }: {
   profiles: CropProfile[]
   onProfilesChanged: (profiles: CropProfile[]) => void
 }) {
-  // 'closed' | 'upload' | 'crop' — explicit step prevents stale state
   const [creatorStep, setCreatorStep] = useState<'closed' | 'upload' | 'crop'>('closed')
   const [sampleFile, setSampleFile] = useState<File | null>(null)
   const [editingProfile, setEditingProfile] = useState<CropProfile | null>(null)
   const [creatorKey, setCreatorKey] = useState(0)
+  const [renamingProfile, setRenamingProfile] = useState<string | null>(null)
+  const [renameValue, setRenameValue] = useState('')
 
   function handleDeleteProfile(name: string) {
     const updated = profiles.filter(p => p.name !== name)
@@ -331,15 +332,27 @@ function CropProfilesTab({ profiles, onProfilesChanged }: {
   }
 
   function handleStartCreate() {
-    console.log('[CropProfiles] handleStartCreate called, resetting to upload')
     setEditingProfile(null)
     setSampleFile(null)
     setCreatorStep('upload')
     setCreatorKey(k => k + 1)
   }
 
-  // Debug: log state changes
-  console.log('[CropProfiles] render — creatorStep:', creatorStep, 'sampleFile:', sampleFile ? sampleFile.name : 'null')
+  function handleStartRename(name: string) {
+    setRenamingProfile(name)
+    setRenameValue(name)
+  }
+
+  function handleConfirmRename(oldName: string) {
+    const newName = renameValue.trim()
+    if (!newName || newName === oldName) { setRenamingProfile(null); return }
+    if (profiles.some(p => p.name === newName)) { toast.error(`Profile "${newName}" already exists`); return }
+    const updated = profiles.map(p => p.name === oldName ? { ...p, name: newName } : p)
+    onProfilesChanged(updated)
+    saveProfiles(updated)
+    setRenamingProfile(null)
+    toast.success(`Renamed to "${newName}"`)
+  }
 
   return (
     <div className="space-y-6">
@@ -363,7 +376,20 @@ function CropProfilesTab({ profiles, onProfilesChanged }: {
             <tbody>
               {profiles.map(p => (
                 <tr key={p.name} className="border-t">
-                  <td className="px-4 py-2 font-medium">{p.name}</td>
+                  <td className="px-4 py-2 font-medium">
+                    {renamingProfile === p.name ? (
+                      <input
+                        className="border rounded px-2 py-0.5 text-sm w-full max-w-[200px]"
+                        value={renameValue}
+                        onChange={e => setRenameValue(e.target.value)}
+                        onKeyDown={e => { if (e.key === 'Enter') handleConfirmRename(p.name); if (e.key === 'Escape') setRenamingProfile(null) }}
+                        onBlur={() => handleConfirmRename(p.name)}
+                        autoFocus
+                      />
+                    ) : (
+                      <span className="cursor-pointer hover:underline" onClick={() => handleStartRename(p.name)}>{p.name}</span>
+                    )}
+                  </td>
                   <td className="px-4 py-2 text-muted-foreground">{p.labelSize}</td>
                   <td className="px-4 py-2 text-muted-foreground">{p.includeInvoice ? `Yes (${p.invoiceSize ?? 'A4'})` : 'No'}</td>
                   <td className="px-4 py-2 text-muted-foreground">
