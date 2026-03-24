@@ -36,8 +36,14 @@ async function cropPagesToSize(
         [{ left: cropX, bottom: cropY, right: cropX + cropW, top: cropY + cropH }],
       )
 
+      // Scale proportionally to fit within target size, centered
       const newPage = outputDoc.addPage([targetWidth, targetHeight])
-      newPage.drawPage(embeddedPage, { x: 0, y: 0, width: targetWidth, height: targetHeight })
+      const scale = Math.min(targetWidth / embeddedPage.width, targetHeight / embeddedPage.height)
+      const drawW = embeddedPage.width * scale
+      const drawH = embeddedPage.height * scale
+      const drawX = (targetWidth - drawW) / 2
+      const drawY = (targetHeight - drawH) / 2
+      newPage.drawPage(embeddedPage, { x: drawX, y: drawY, width: drawW, height: drawH })
     }
 
     const pdfBytes = await outputDoc.save()
