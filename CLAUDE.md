@@ -213,11 +213,24 @@ Replaces Quick Labels tool. Staff uploads Flipkart label PDFs → system parses 
 - `sku_mappings` — resolves platform SKU → master SKU (case-insensitive lookup)
 - `marketplace_accounts` + `organizations` — resolves GSTIN from label → org
 
+### Additional features (completed late session)
+- **Edit profiles** — pencil icon opens full crop flow with saved settings pre-loaded
+- **Inline rename** — click profile name in table to rename, Enter to save, Escape to cancel
+- **Invoice cropping** — "Include Invoice" checkbox per profile, freeform second crop (blue overlay), A4 output, sorted per product
+- **Custom label sizes** — "Custom..." option with width x height input
+- **Invoice size** — A4 default, proportionally scaled (no aspect ratio distortion)
+- **Label preview table** — "Labels" + "Invoices" download buttons per group when invoice enabled
+
+### Bugs fixed (late session)
+- **react-dropzone re-firing cached file:** When `LabelUploadZone` remounted, dropzone auto-fired with the previously dropped file, skipping the upload step. Fix: add `key={creatorKey}` to force fresh dropzone instance.
+- **pdf.js workerSrc not set in CropSelector:** The worker was only configured in `pdf-parser.ts` but `LabelCropSelector` also imports pdf.js directly. Fix: set `workerSrc = '/pdf.worker.min.mjs'` before `getDocument()` in the crop selector too.
+- **Invoice aspect ratio distortion:** Stretching freeform crop to fill A4 distorted QR codes. Fix: use proportional scaling (`Math.min(scaleX, scaleY)`) + center on page.
+- **Canvas shift mid-crop:** Step indicator buttons ("1. Label Crop" / "2. Invoice Crop") only appeared after label crop was drawn, shifting the canvas. Fix: show buttons immediately when "Include Invoice" is checked.
+- **3-step state machine for profile creator:** Boolean `showCreator` + `sampleFile` null-check was unreliable. Replaced with explicit `'closed' | 'upload' | 'crop'` state machine.
+
 ### Still to do (next session)
-- Edit profiles (re-open crop selector with saved crop pre-loaded)
-- Invoice crop area (second crop per profile for A4 invoices — Amazon requires separate invoice printing)
-- Custom label sizes (user-defined width x height)
-- Move profiles to DB (currently localStorage only)
+- Move profiles to DB (currently localStorage only — needed for multi-device/multi-user)
+- Remove debug console.logs from LabelCropSelector (workerSrc area)
 
 ---
 

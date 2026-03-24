@@ -38,9 +38,9 @@
 
 ## Build Roadmap
 
-### Phase 1: Label Sorting — POLISH (core complete, polish remaining)
+### Phase 1: Label Sorting — COMPLETE
 
-> Core feature shipped. 2-tab system live. Remaining items are polish/extensions.
+> Full feature shipped with all polish. Demo passed.
 
 - [x] ~~Label PDF upload page~~ ✅
 - [x] ~~PDF parser (pdf.js text extraction)~~ ✅
@@ -49,14 +49,16 @@
 - [x] ~~Unknown SKU flagging with inline mapping~~ ✅
 - [x] ~~User-guided label cropping~~ ✅
 - [x] ~~Group & sort by master product~~ ✅
-- [x] ~~Output sorted PDFs (4x6 inch, edge-to-edge)~~ ✅
-- [x] ~~Crop profiles (save/load/delete)~~ ✅
-- [x] ~~Label size selector (4x6, 4x4, 3x5, 2x1)~~ ✅
+- [x] ~~Output sorted PDFs (label size, proportional scaling)~~ ✅
+- [x] ~~Crop profiles (save/load/delete/rename)~~ ✅
+- [x] ~~Label size selector (4x6, 4x4, 3x5, 2x1, A4, Custom)~~ ✅
 - [x] ~~2-tab layout (Sort Labels + Crop Profiles)~~ ✅
 - [x] ~~Auto-create orders + dispatches~~ ✅
-- [ ] **Edit crop profiles** — re-open crop selector with saved crop pre-loaded
-- [ ] **Invoice crop area** — second crop per profile for platforms requiring separate invoice printing (Amazon)
-- [ ] **Custom label sizes** — user-defined width x height
+- [x] ~~Edit crop profiles (pencil icon, full re-crop flow)~~ ✅
+- [x] ~~Inline profile rename (click name in table)~~ ✅
+- [x] ~~Invoice cropping (freeform, A4 output, proportional scaling)~~ ✅
+- [x] ~~Custom label sizes (user-defined W x H)~~ ✅
+- [x] ~~Platform-agnostic text (removed Flipkart-specific wording)~~ ✅
 - [ ] **Move profiles to DB** — currently localStorage only, needs DB for multi-device/multi-user
 - [ ] **User roles (basic)** — owner / manager / warehouse-staff on `user_profiles`
 - [ ] **Daily summary view** — dispatch counts per product/account/warehouse, COD vs PREPAID breakdown
