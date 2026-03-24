@@ -248,7 +248,9 @@ export function LabelCropSelector({ file, profiles, mode = 'save', editProfile, 
   function handleSaveProfile() {
     if (!newProfileName.trim() || !cropBox) return
     const name = newProfileName.trim()
-    const existing = profiles.filter(p => p.name !== name)
+    // When editing, remove the original profile name (handles renames)
+    const originalName = editProfile?.name ?? name
+    const existing = profiles.filter(p => p.name !== originalName && p.name !== name)
     const profile: CropProfile = {
       name,
       labelSize: selectedLabelSize === 'Custom' ? `${customW} x ${customH} in` : selectedLabelSize,
