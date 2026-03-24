@@ -343,8 +343,8 @@ export function LabelCropSelector({ file, profiles, mode = 'save', editProfile, 
         )}
       </div>
 
-      {/* Step indicator for invoice */}
-      {includeInvoice && cropBox && (
+      {/* Step indicator for invoice — always visible when invoice enabled */}
+      {includeInvoice && (
         <div className="flex gap-2">
           <Button variant={step === 'label' ? 'default' : 'outline'} size="sm" onClick={() => setStep('label')}>
             1. Label Crop {cropBox ? '(done)' : ''}
