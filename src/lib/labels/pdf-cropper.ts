@@ -23,61 +23,83 @@ async function findLabelCropY(
 
   const textContent = await page.getTextContent()
 
-  // Look for "Tax Invoice" text — this marks the start of the invoice section.
-  // The dashed line is just above it. We want to crop AT the dashed line.
-  // Also check for "- - - -" dashed line pattern.
-  let invoiceY: number | null = null
-
+  // Build a list of all text items with their Y positions (from bottom of page)
+  const textItems: Array<{ text: string; y: number }> = []
   for (const item of textContent.items) {
     if (!('str' in item) || !item.str.trim()) continue
-    const text = item.str.trim()
-
-    // pdf.js transform: [scaleX, skewX, skewY, scaleY, translateX, translateY]
-    // translateY is from the BOTTOM of the page in pdf.js coordinates
     const ty = (item as { transform: number[] }).transform[5]
+    textItems.push({ text: item.str.trim(), y: ty })
+  }
 
-    // "Tax Invoice" marks the invoice section start
-    if (text.toLowerCase().includes('tax invoice')) {
-      // Convert to distance from bottom: in pdf.js, ty IS from bottom
-      invoiceY = ty
+  // Sort by Y position descending (top of page first)
+  textItems.sort((a, b) => b.y - a.y)
+
+  // DEBUG: log text items to console for diagnosis
+  console.log(`[LabelCrop] Page ${pageIndex} — ${textItems.length} text items, page: ${pageWidth}x${pageHeight}`)
+  for (const t of textItems) {
+    console.log(`  y=${t.y.toFixed(1)} "${t.text}"`)
+  }
+
+  // Strategy 1: Find "Tax Invoice" or "Tax" near "Invoice" — marks the invoice section
+  let invoiceY: number | null = null
+
+  for (let i = 0; i < textItems.length; i++) {
+    const t = textItems[i].text.toLowerCase()
+    // Exact match on combined text
+    if (t.includes('tax invoice')) {
+      invoiceY = textItems[i].y
       break
+    }
+    // "Tax" followed by "Invoice" as separate text items at the same Y level
+    if (t === 'tax' && i + 1 < textItems.length) {
+      const next = textItems[i + 1]
+      if (next.text.toLowerCase() === 'invoice' && Math.abs(next.y - textItems[i].y) < 5) {
+        invoiceY = textItems[i].y
+        break
+      }
     }
   }
 
   if (invoiceY !== null) {
-    // Add a small margin above "Tax Invoice" to include the dashed line gap
-    // invoiceY is from the bottom of the page
-    // We want to crop everything below this point + a small buffer
-    const cropY = invoiceY + 10 // 10pt above the "Tax Invoice" text
+    const cropY = invoiceY + 15
     return { cropY, pageHeight, pageWidth }
   }
 
-  // Fallback: try to find the dashed separator by looking for a large vertical
-  // gap in text items in the middle portion of the page
-  const yPositions = textContent.items
-    .filter((item): item is typeof item & { transform: number[] } =>
-      'str' in item && item.str.trim().length > 0)
-    .map(item => item.transform[5])
-    .sort((a, b) => b - a) // top to bottom (highest Y first)
+  // Strategy 2: Find "Not for resale" — this is the LAST line of the shipping label
+  // Crop just below this text
+  for (const item of textItems) {
+    if (item.text.toLowerCase().includes('not for resale')) {
+      // Crop a bit below "Not for resale" to include it, then cut
+      const cropY = item.y - 5
+      return { cropY, pageHeight, pageWidth }
+    }
+  }
 
-  // Look for the largest gap in the middle 40% of the page
+  // Strategy 3: Find "Printed at" — also appears at the bottom of the label section
+  for (const item of textItems) {
+    if (item.text.toLowerCase().includes('printed at')) {
+      const cropY = item.y - 5
+      return { cropY, pageHeight, pageWidth }
+    }
+  }
+
+  // Strategy 4: Look for the largest vertical gap in the middle of the page
+  const yPositions = textItems.map(t => t.y).sort((a, b) => b - a)
+
   let maxGap = 0
   let gapY = pageHeight / 2
 
   for (let i = 0; i < yPositions.length - 1; i++) {
-    const y = yPositions[i]
-    // Only consider gaps in the middle portion of the page (30%-70% from top)
-    const fromTop = pageHeight - y
+    const fromTop = pageHeight - yPositions[i]
     if (fromTop < pageHeight * 0.3 || fromTop > pageHeight * 0.7) continue
 
     const gap = yPositions[i] - yPositions[i + 1]
     if (gap > maxGap) {
       maxGap = gap
-      gapY = yPositions[i + 1] + gap / 2 // middle of the gap
+      gapY = yPositions[i + 1] + gap / 2
     }
   }
 
-  // If we found a significant gap (> 20pt), use it
   if (maxGap > 20) {
     return { cropY: gapY, pageHeight, pageWidth }
   }
