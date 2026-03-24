@@ -14,7 +14,7 @@ export async function parseLabelPdf(
   const pdfjsLib = await import('pdfjs-dist')
 
   if (!pdfjsInitialized && typeof window !== 'undefined') {
-    pdfjsLib.GlobalWorkerOptions.workerSrc = `//cdnjs.cloudflare.com/ajax/libs/pdf.js/${pdfjsLib.version}/pdf.worker.min.mjs`
+    pdfjsLib.GlobalWorkerOptions.workerSrc = '/pdf.worker.min.mjs'
     pdfjsInitialized = true
   }
 
