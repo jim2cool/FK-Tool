@@ -1,20 +1,20 @@
 import { PDFDocument } from 'pdf-lib'
 import type { ResolvedLabel, LabelGroup } from './types'
-import type { CropBox } from '@/components/labels/LabelCropSelector'
+import type { CropBox, LabelSize } from '@/components/labels/LabelCropSelector'
 
 /**
- * Given groups, source PDF files, and a user-defined crop box,
+ * Given groups, source PDF files, a user-defined crop box, and a label size,
  * produce one cropped PDF per product group.
- * Each output page is exactly 4x6 inches (288x432pt) for label printers.
+ * Each output page matches the selected label size exactly, edge-to-edge.
  */
 export async function cropAndGroupLabels(
   groups: LabelGroup[],
   sourceFiles: File[],
   cropBox: CropBox,
+  labelSize?: LabelSize,
 ): Promise<Map<string, Uint8Array>> {
-  // Target: 4x6 inch label (288 x 432 points)
-  const LABEL_WIDTH = 288
-  const LABEL_HEIGHT = 432
+  const LABEL_WIDTH = labelSize?.widthPt ?? 288
+  const LABEL_HEIGHT = labelSize?.heightPt ?? 432
 
   // Load all source PDFs into pdf-lib documents
   const sourceDocs: PDFDocument[] = []
@@ -51,14 +51,10 @@ export async function cropAndGroupLabels(
         [{ left: cropX, bottom: cropY, right: cropX + cropW, top: cropY + cropH }],
       )
 
-      // Create a new 4x6 page and draw the embedded label scaled to fit
+      // Create output page at exact label size, stretch to fill edge-to-edge
+      // Since crop box is aspect-ratio locked to the label size, this fills perfectly
       const newPage = outputDoc.addPage([LABEL_WIDTH, LABEL_HEIGHT])
-      const scale = Math.min(LABEL_WIDTH / embeddedPage.width, LABEL_HEIGHT / embeddedPage.height)
-      const scaledW = embeddedPage.width * scale
-      const scaledH = embeddedPage.height * scale
-      const x = (LABEL_WIDTH - scaledW) / 2
-      const y = (LABEL_HEIGHT - scaledH) / 2
-      newPage.drawPage(embeddedPage, { x, y, width: scaledW, height: scaledH })
+      newPage.drawPage(embeddedPage, { x: 0, y: 0, width: LABEL_WIDTH, height: LABEL_HEIGHT })
     }
 
     const pdfBytes = await outputDoc.save()

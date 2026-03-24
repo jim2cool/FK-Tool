@@ -10,7 +10,7 @@ import { toast } from 'sonner'
 import { LabelUploadZone } from '@/components/labels/LabelUploadZone'
 import { LabelPreviewTable } from '@/components/labels/LabelPreviewTable'
 import { UnmappedSkuPanel } from '@/components/labels/UnmappedSkuPanel'
-import { LabelCropSelector, type CropBox } from '@/components/labels/LabelCropSelector'
+import { LabelCropSelector, type CropBox, type CropProfile, type LabelSize, LABEL_SIZES, loadProfiles } from '@/components/labels/LabelCropSelector'
 import { parseLabelPdf } from '@/lib/labels/pdf-parser'
 import { cropAndGroupLabels, groupLabelsByProduct } from '@/lib/labels/pdf-cropper'
 import type { ParsedLabel, ResolvedLabel, LabelGroup, LabelSortResult, UnmappedSku } from '@/lib/labels/types'
@@ -19,22 +19,6 @@ interface Warehouse { id: string; name: string }
 interface MasterSkuOption { id: string; name: string }
 
 type PageState = 'idle' | 'parsing' | 'resolving' | 'cropping' | 'ready' | 'ingesting'
-
-const CROP_STORAGE_KEY = 'fk-label-crop-box'
-
-function loadSavedCrop(): CropBox | null {
-  try {
-    const raw = localStorage.getItem(CROP_STORAGE_KEY)
-    if (!raw) return null
-    const parsed = JSON.parse(raw)
-    if (parsed && typeof parsed.x === 'number' && typeof parsed.y === 'number') return parsed
-    return null
-  } catch { return null }
-}
-
-function saveCrop(crop: CropBox) {
-  try { localStorage.setItem(CROP_STORAGE_KEY, JSON.stringify(crop)) } catch { /* ignore */ }
-}
 
 export default function LabelsPage() {
   const [warehouses, setWarehouses] = useState<Warehouse[]>([])
@@ -45,7 +29,12 @@ export default function LabelsPage() {
   const [resolvedLabels, setResolvedLabels] = useState<ResolvedLabel[]>([])
   const [sortResult, setSortResult] = useState<LabelSortResult | null>(null)
   const [cropBox, setCropBox] = useState<CropBox | null>(null)
+  const [labelSize, setLabelSize] = useState<LabelSize>(LABEL_SIZES[0])
+  const [cropProfiles, setCropProfiles] = useState<CropProfile[]>([])
   const [userRole] = useState<'owner' | 'admin' | 'manager' | 'staff' | 'member'>('owner')
+
+  // Load profiles from localStorage on mount
+  useEffect(() => { setCropProfiles(loadProfiles()) }, [])
 
   useEffect(() => {
     Promise.all([
@@ -115,26 +104,23 @@ export default function LabelsPage() {
       setResolvedLabels(resolved)
       setSortResult(buildSortResult(resolved))
 
-      // Check if we have a saved crop — if so, skip the crop selector
-      const saved = loadSavedCrop()
-      if (saved) {
-        setCropBox(saved)
-        setState('ready')
-        toast.success('Using saved crop area. You can adjust it from the results view.')
-      } else {
-        setState('cropping')
-      }
+      // Always show crop selector — user picks a profile or draws a new box
+      setState('cropping')
     } catch (e) {
       toast.error((e as Error).message)
       setState('idle')
     }
   }, [selectedWarehouse])
 
-  function handleCropConfirmed(crop: CropBox) {
+  function handleCropConfirmed(crop: CropBox, size: LabelSize, profileName: string) {
     setCropBox(crop)
-    saveCrop(crop)
+    setLabelSize(size)
     setState('ready')
-    toast.success('Crop area saved — will be reused for future uploads.')
+    if (profileName) {
+      toast.success(`Using profile "${profileName}"`)
+    } else {
+      toast.success('Crop applied — save as a profile for quick reuse.')
+    }
   }
 
   function handleCropCancel() {
@@ -147,7 +133,7 @@ export default function LabelsPage() {
   async function handleDownloadGroup(group: LabelGroup) {
     if (!cropBox) { toast.error('No crop area defined'); return }
     try {
-      const croppedPdfs = await cropAndGroupLabels([group], uploadedFiles, cropBox)
+      const croppedPdfs = await cropAndGroupLabels([group], uploadedFiles, cropBox, labelSize)
       for (const [fileName, bytes] of croppedPdfs) downloadPdf(bytes, `${fileName}.pdf`)
     } catch { toast.error('Failed to generate PDF') }
   }
@@ -155,7 +141,7 @@ export default function LabelsPage() {
   async function handleDownloadAll() {
     if (!sortResult || !cropBox) return
     try {
-      const croppedPdfs = await cropAndGroupLabels(sortResult.groups, uploadedFiles, cropBox)
+      const croppedPdfs = await cropAndGroupLabels(sortResult.groups, uploadedFiles, cropBox, labelSize)
       for (const [fileName, bytes] of croppedPdfs) downloadPdf(bytes, `${fileName}.pdf`)
       toast.success(`Downloaded ${croppedPdfs.size} PDFs`)
     } catch { toast.error('Failed to generate PDFs') }
@@ -249,9 +235,10 @@ export default function LabelsPage() {
       {state === 'cropping' && uploadedFiles.length > 0 && (
         <LabelCropSelector
           file={uploadedFiles[0]}
-          savedCrop={loadSavedCrop()}
+          profiles={cropProfiles}
           onCropConfirmed={handleCropConfirmed}
           onCancel={handleCropCancel}
+          onProfilesChanged={setCropProfiles}
         />
       )}
 
