@@ -28,8 +28,8 @@ export function LabelUploadZone({ onFilesSelected, disabled }: LabelUploadZonePr
     >
       <input {...getInputProps()} />
       <Upload className="h-8 w-8 mx-auto mb-3 text-muted-foreground" />
-      <p className="text-sm font-medium">{isDragActive ? 'Drop label PDFs here' : 'Drop Flipkart label PDFs here or click to select'}</p>
-      <p className="text-xs text-muted-foreground mt-1">Upload one or more PDFs from Flipkart Seller Hub. Labels will be sorted by product.</p>
+      <p className="text-sm font-medium">{isDragActive ? 'Drop PDFs here' : 'Drop label PDFs here or click to select'}</p>
+      <p className="text-xs text-muted-foreground mt-1">Upload one or more label PDFs. Labels will be sorted by product.</p>
     </div>
   )
 }

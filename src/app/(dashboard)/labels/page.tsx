@@ -331,11 +331,15 @@ function CropProfilesTab({ profiles, onProfilesChanged }: {
   }
 
   function handleStartCreate() {
+    console.log('[CropProfiles] handleStartCreate called, resetting to upload')
     setEditingProfile(null)
     setSampleFile(null)
     setCreatorStep('upload')
     setCreatorKey(k => k + 1)
   }
+
+  // Debug: log state changes
+  console.log('[CropProfiles] render — creatorStep:', creatorStep, 'sampleFile:', sampleFile ? sampleFile.name : 'null')
 
   return (
     <div className="space-y-6">
