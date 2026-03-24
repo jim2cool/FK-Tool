@@ -126,16 +126,32 @@ export async function cropAndGroupLabels(
       const key = `${pageRef.fileIndex}-${pageRef.pageIndex}`
       const cropInfo = cropCache.get(key)!
 
-      // Copy the page to our output document
-      const [copiedPage] = await outputDoc.copyPages(sourceDoc, [pageRef.pageIndex])
+      // Target: 4x6 inch label (288 x 432 points)
+      const LABEL_WIDTH = 288
+      const LABEL_HEIGHT = 432
 
-      // Crop: keep from cropY to top of page
-      // pdf-lib setCropBox(x, y, width, height) — y is from bottom edge
+      // Step 1: Create a temp doc with just the cropped label
+      const tempDoc = await PDFDocument.create()
+      const [tempPage] = await tempDoc.copyPages(sourceDoc, [pageRef.pageIndex])
       const labelHeight = cropInfo.pageHeight - cropInfo.cropY
-      copiedPage.setCropBox(0, cropInfo.cropY, cropInfo.pageWidth, labelHeight)
-      copiedPage.setMediaBox(0, cropInfo.cropY, cropInfo.pageWidth, labelHeight)
+      tempPage.setCropBox(0, cropInfo.cropY, cropInfo.pageWidth, labelHeight)
+      tempPage.setMediaBox(0, cropInfo.cropY, cropInfo.pageWidth, labelHeight)
+      tempDoc.addPage(tempPage)
 
-      outputDoc.addPage(copiedPage)
+      // Step 2: Embed the cropped page into the output doc as a scaled image
+      const tempBytes = await tempDoc.save()
+      const embeddableDoc = await PDFDocument.load(tempBytes)
+      const [embeddedPage] = await outputDoc.embedPages(embeddableDoc.getPages())
+
+      // Step 3: Create a new 4x6 page and draw the embedded label scaled to fit
+      const newPage = outputDoc.addPage([LABEL_WIDTH, LABEL_HEIGHT])
+      const scale = Math.min(LABEL_WIDTH / embeddedPage.width, LABEL_HEIGHT / embeddedPage.height)
+      const scaledW = embeddedPage.width * scale
+      const scaledH = embeddedPage.height * scale
+      // Center on the label
+      const x = (LABEL_WIDTH - scaledW) / 2
+      const y = (LABEL_HEIGHT - scaledH) / 2
+      newPage.drawPage(embeddedPage, { x, y, width: scaledW, height: scaledH })
     }
 
     const pdfBytes = await outputDoc.save()
