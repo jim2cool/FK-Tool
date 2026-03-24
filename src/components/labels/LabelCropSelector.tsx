@@ -125,6 +125,9 @@ export function LabelCropSelector({ file, profiles, mode = 'save', editProfile, 
     let cancelled = false
     async function renderPage() {
       const pdfjsLib = await import('pdfjs-dist')
+      if (typeof window !== 'undefined' && !pdfjsLib.GlobalWorkerOptions.workerSrc) {
+        pdfjsLib.GlobalWorkerOptions.workerSrc = '/pdf.worker.min.mjs'
+      }
       const arrayBuffer = await file.arrayBuffer()
       const pdf = await pdfjsLib.getDocument({ data: arrayBuffer }).promise
       const page = await pdf.getPage(1)

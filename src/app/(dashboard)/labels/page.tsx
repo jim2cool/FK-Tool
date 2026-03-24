@@ -399,7 +399,7 @@ function CropProfilesTab({ profiles, onProfilesChanged }: {
         <div className="space-y-3">
           <h3 className="font-medium">{editingProfile ? `Edit Profile: ${editingProfile.name}` : 'Upload a sample PDF'}</h3>
           <p className="text-sm text-muted-foreground">Upload any label PDF to use as a reference for drawing the crop area.</p>
-          <LabelUploadZone onFilesSelected={handleFileSelected} disabled={false} />
+          <LabelUploadZone key={creatorKey} onFilesSelected={handleFileSelected} disabled={false} />
           <Button variant="ghost" onClick={handleCreatorCancel}>Cancel</Button>
         </div>
       )}
