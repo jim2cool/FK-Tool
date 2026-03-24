@@ -11,11 +11,11 @@ import { toast } from 'sonner'
 import { LabelUploadZone } from '@/components/labels/LabelUploadZone'
 import { LabelPreviewTable } from '@/components/labels/LabelPreviewTable'
 import { UnmappedSkuPanel } from '@/components/labels/UnmappedSkuPanel'
-import { LabelCropSelector, type CropBox, type CropProfile, type LabelSize, LABEL_SIZES, loadProfiles, saveProfiles } from '@/components/labels/LabelCropSelector'
+import { LabelCropSelector, type CropBox, type CropProfile, type LabelSize, LABEL_SIZES, INVOICE_SIZE, loadProfiles, saveProfiles } from '@/components/labels/LabelCropSelector'
 import { parseLabelPdf } from '@/lib/labels/pdf-parser'
-import { cropAndGroupLabels, groupLabelsByProduct } from '@/lib/labels/pdf-cropper'
+import { cropAndGroupLabels, cropAndGroupInvoices, groupLabelsByProduct } from '@/lib/labels/pdf-cropper'
 import type { ParsedLabel, ResolvedLabel, LabelGroup, LabelSortResult, UnmappedSku } from '@/lib/labels/types'
-import { Trash2 } from 'lucide-react'
+import { Trash2, Pencil } from 'lucide-react'
 
 interface Warehouse { id: string; name: string }
 interface MasterSkuOption { id: string; name: string }
@@ -53,7 +53,6 @@ function SortLabelsTab({ profiles, onNeedProfile }: {
     }).catch(() => toast.error('Failed to load reference data'))
   }, [])
 
-  // Update selected profile when profiles list changes
   useEffect(() => {
     if (profiles.length > 0 && !profiles.find(p => p.name === selectedProfileName)) {
       setSelectedProfileName(profiles[0].name)
@@ -117,21 +116,43 @@ function SortLabelsTab({ profiles, onNeedProfile }: {
     return LABEL_SIZES.find(s => s.name === activeProfile.labelSize) ?? LABEL_SIZES[0]
   }
 
+  const getInvoiceSize = (): LabelSize => {
+    if (!activeProfile?.invoiceSize) return INVOICE_SIZE
+    return LABEL_SIZES.find(s => s.name === activeProfile.invoiceSize) ?? INVOICE_SIZE
+  }
+
   async function handleDownloadGroup(group: LabelGroup) {
     if (!activeProfile) return
     try {
-      const croppedPdfs = await cropAndGroupLabels([group], uploadedFiles, activeProfile.crop, getLabelSize())
-      for (const [fileName, bytes] of croppedPdfs) downloadPdf(bytes, `${fileName}.pdf`)
+      const pdfs = await cropAndGroupLabels([group], uploadedFiles, activeProfile.crop, getLabelSize())
+      for (const [fn, bytes] of pdfs) downloadPdf(bytes, `${fn}.pdf`)
     } catch { toast.error('Failed to generate PDF') }
+  }
+
+  async function handleDownloadInvoiceGroup(group: LabelGroup) {
+    if (!activeProfile?.invoiceCrop) return
+    try {
+      const pdfs = await cropAndGroupInvoices([group], uploadedFiles, activeProfile.invoiceCrop, getInvoiceSize())
+      for (const [fn, bytes] of pdfs) downloadPdf(bytes, `${fn}.pdf`)
+    } catch { toast.error('Failed to generate invoice PDF') }
   }
 
   async function handleDownloadAll() {
     if (!sortResult || !activeProfile) return
     try {
-      const croppedPdfs = await cropAndGroupLabels(sortResult.groups, uploadedFiles, activeProfile.crop, getLabelSize())
-      for (const [fileName, bytes] of croppedPdfs) downloadPdf(bytes, `${fileName}.pdf`)
-      toast.success(`Downloaded ${croppedPdfs.size} PDFs`)
+      const pdfs = await cropAndGroupLabels(sortResult.groups, uploadedFiles, activeProfile.crop, getLabelSize())
+      for (const [fn, bytes] of pdfs) downloadPdf(bytes, `${fn}.pdf`)
+      toast.success(`Downloaded ${pdfs.size} label PDFs`)
     } catch { toast.error('Failed to generate PDFs') }
+  }
+
+  async function handleDownloadAllInvoices() {
+    if (!sortResult || !activeProfile?.invoiceCrop) return
+    try {
+      const pdfs = await cropAndGroupInvoices(sortResult.groups, uploadedFiles, activeProfile.invoiceCrop, getInvoiceSize())
+      for (const [fn, bytes] of pdfs) downloadPdf(bytes, `${fn}.pdf`)
+      toast.success(`Downloaded ${pdfs.size} invoice PDFs`)
+    } catch { toast.error('Failed to generate invoice PDFs') }
   }
 
   async function handleIngest() {
@@ -186,12 +207,10 @@ function SortLabelsTab({ profiles, onNeedProfile }: {
 
   return (
     <div className="space-y-6">
-      {/* Controls row */}
       <div className="flex items-end gap-4 flex-wrap">
-        <div className="max-w-xs">
+        <div>
           <label className="text-xs font-medium mb-1 block text-muted-foreground">
-            Warehouse
-            <InfoTooltip content="Select the warehouse these labels are being dispatched from." />
+            Warehouse <InfoTooltip content="Select the warehouse these labels are being dispatched from." />
           </label>
           <Select value={selectedWarehouse} onValueChange={setSelectedWarehouse} disabled={state !== 'idle'}>
             <SelectTrigger className="w-[200px]"><SelectValue placeholder="Select warehouse..." /></SelectTrigger>
@@ -203,52 +222,53 @@ function SortLabelsTab({ profiles, onNeedProfile }: {
 
         <div>
           <label className="text-xs font-medium mb-1 block text-muted-foreground">
-            Crop Profile
-            <InfoTooltip content="Select a saved crop profile that defines how to crop the label from each PDF page. Manage profiles in the Crop Profiles tab." />
+            Crop Profile <InfoTooltip content="Select a saved crop profile. Manage profiles in the Crop Profiles tab." />
           </label>
           {profiles.length > 0 ? (
             <Select value={selectedProfileName} onValueChange={setSelectedProfileName} disabled={state !== 'idle'}>
               <SelectTrigger className="w-[220px]"><SelectValue /></SelectTrigger>
               <SelectContent>
                 {profiles.map(p => (
-                  <SelectItem key={p.name} value={p.name}>{p.name} ({p.labelSize})</SelectItem>
+                  <SelectItem key={p.name} value={p.name}>
+                    {p.name} ({p.labelSize}){p.includeInvoice ? ' + Invoice' : ''}
+                  </SelectItem>
                 ))}
               </SelectContent>
             </Select>
           ) : (
-            <Button variant="outline" size="sm" className="h-9" onClick={onNeedProfile}>
-              Create Crop Profile
-            </Button>
+            <Button variant="outline" size="sm" className="h-9" onClick={onNeedProfile}>Create Crop Profile</Button>
           )}
         </div>
       </div>
 
-      {/* Upload zone */}
       {state === 'idle' && (
         <LabelUploadZone onFilesSelected={handleFilesSelected} disabled={!selectedWarehouse || !activeProfile} />
       )}
 
       {state === 'idle' && (!selectedWarehouse || !activeProfile) && (
         <div className="text-center py-4 text-muted-foreground text-sm">
-          {!selectedWarehouse && !activeProfile
-            ? 'Select a warehouse and crop profile to get started.'
-            : !selectedWarehouse
-              ? 'Select a warehouse above.'
-              : 'Create a crop profile in the "Crop Profiles" tab first.'}
+          {!selectedWarehouse && !activeProfile ? 'Select a warehouse and crop profile to get started.'
+            : !selectedWarehouse ? 'Select a warehouse above.'
+            : 'Create a crop profile in the "Crop Profiles" tab first.'}
         </div>
       )}
 
-      {/* Loading states */}
       {state === 'parsing' && <div className="text-center py-8 text-muted-foreground">Parsing label PDFs...</div>}
       {state === 'resolving' && <div className="text-center py-8 text-muted-foreground">Matching SKUs to master catalog...</div>}
 
-      {/* Results */}
       {(state === 'ready' || state === 'ingesting') && sortResult && (
         <div className="space-y-6">
           <UnmappedSkuPanel unmapped={sortResult.unmapped} masterSkus={masterSkus} userRole={userRole} onMapped={handleSkuMapped} />
 
           {sortResult.groups.length > 0 ? (
-            <LabelPreviewTable result={sortResult} onDownloadGroup={handleDownloadGroup} onDownloadAll={handleDownloadAll} />
+            <LabelPreviewTable
+              result={sortResult}
+              hasInvoice={activeProfile?.includeInvoice && !!activeProfile?.invoiceCrop}
+              onDownloadGroup={handleDownloadGroup}
+              onDownloadInvoiceGroup={handleDownloadInvoiceGroup}
+              onDownloadAll={handleDownloadAll}
+              onDownloadAllInvoices={handleDownloadAllInvoices}
+            />
           ) : (
             <div className="text-center py-8 text-muted-foreground">No labels could be matched to products. Map the unknown SKUs above first.</div>
           )}
@@ -275,6 +295,7 @@ function CropProfilesTab({ profiles, onProfilesChanged }: {
 }) {
   const [sampleFile, setSampleFile] = useState<File | null>(null)
   const [showCreator, setShowCreator] = useState(false)
+  const [editingProfile, setEditingProfile] = useState<CropProfile | null>(null)
 
   function handleDeleteProfile(name: string) {
     const updated = profiles.filter(p => p.name !== name)
@@ -283,26 +304,28 @@ function CropProfilesTab({ profiles, onProfilesChanged }: {
     toast.success(`Deleted profile "${name}"`)
   }
 
-  function handleCropConfirmed(crop: CropBox, labelSize: LabelSize, profileName: string) {
-    if (!profileName) return
-    const existing = profiles.filter(p => p.name !== profileName)
-    const updated = [...existing, { name: profileName, labelSize: labelSize.name, crop }]
-    onProfilesChanged(updated)
-    saveProfiles(updated)
+  function handleEditProfile(profile: CropProfile) {
+    setEditingProfile(profile)
     setSampleFile(null)
-    setShowCreator(false)
-    toast.success(`Profile "${profileName}" saved`)
+    setShowCreator(true)
+  }
+
+  function handleCropConfirmed(_crop: CropBox, _labelSize: LabelSize, profileName: string) {
+    // Profile already saved inside LabelCropSelector's handleSaveProfile
+    if (profileName) {
+      setSampleFile(null)
+      setShowCreator(false)
+      setEditingProfile(null)
+    }
   }
 
   return (
     <div className="space-y-6">
       <p className="text-sm text-muted-foreground">
-        Crop profiles define how to extract the shipping label from each PDF page.
-        Upload a sample PDF, draw the label area, and save it as a named profile.
-        <InfoTooltip content="Each platform may have a different label layout. Create one profile per layout (e.g., 'Flipkart', 'Amazon'). The crop area is applied to all pages when sorting." />
+        Crop profiles define how to extract the shipping label (and optionally invoice) from each PDF page.
+        <InfoTooltip content="Each platform may have a different label layout. Create one profile per layout (e.g., 'Flipkart', 'Amazon'). Enable 'Include Invoice' for platforms that require separate invoice printing." />
       </p>
 
-      {/* Existing profiles */}
       {profiles.length > 0 && (
         <div className="border rounded-lg overflow-hidden">
           <table className="w-full text-sm">
@@ -310,6 +333,7 @@ function CropProfilesTab({ profiles, onProfilesChanged }: {
               <tr>
                 <th className="text-left px-4 py-2 font-medium">Profile Name</th>
                 <th className="text-left px-4 py-2 font-medium">Label Size</th>
+                <th className="text-left px-4 py-2 font-medium">Invoice</th>
                 <th className="text-left px-4 py-2 font-medium">Crop Area</th>
                 <th className="text-right px-4 py-2 font-medium">Actions</th>
               </tr>
@@ -319,10 +343,14 @@ function CropProfilesTab({ profiles, onProfilesChanged }: {
                 <tr key={p.name} className="border-t">
                   <td className="px-4 py-2 font-medium">{p.name}</td>
                   <td className="px-4 py-2 text-muted-foreground">{p.labelSize}</td>
+                  <td className="px-4 py-2 text-muted-foreground">{p.includeInvoice ? `Yes (${p.invoiceSize ?? 'A4'})` : 'No'}</td>
                   <td className="px-4 py-2 text-muted-foreground">
-                    {(p.crop.width * 100).toFixed(0)}% x {(p.crop.height * 100).toFixed(0)}% of page
+                    {(p.crop.width * 100).toFixed(0)}% x {(p.crop.height * 100).toFixed(0)}%
                   </td>
-                  <td className="px-4 py-2 text-right">
+                  <td className="px-4 py-2 text-right space-x-1">
+                    <Button variant="ghost" size="icon" className="h-7 w-7" onClick={() => handleEditProfile(p)}>
+                      <Pencil className="h-3.5 w-3.5" />
+                    </Button>
                     <Button variant="ghost" size="icon" className="h-7 w-7" onClick={() => handleDeleteProfile(p.name)}>
                       <Trash2 className="h-3.5 w-3.5 text-destructive" />
                     </Button>
@@ -341,17 +369,16 @@ function CropProfilesTab({ profiles, onProfilesChanged }: {
         </div>
       )}
 
-      {/* Create new profile */}
       {!showCreator && profiles.length > 0 && (
-        <Button variant="outline" onClick={() => setShowCreator(true)}>Create New Profile</Button>
+        <Button variant="outline" onClick={() => { setShowCreator(true); setEditingProfile(null) }}>Create New Profile</Button>
       )}
 
       {showCreator && !sampleFile && (
         <div className="space-y-3">
-          <h3 className="font-medium">Upload a sample PDF</h3>
+          <h3 className="font-medium">{editingProfile ? `Edit Profile: ${editingProfile.name}` : 'Upload a sample PDF'}</h3>
           <p className="text-sm text-muted-foreground">Upload any label PDF to use as a reference for drawing the crop area.</p>
           <LabelUploadZone onFilesSelected={(files) => setSampleFile(files[0])} disabled={false} />
-          <Button variant="ghost" onClick={() => setShowCreator(false)}>Cancel</Button>
+          <Button variant="ghost" onClick={() => { setShowCreator(false); setEditingProfile(null) }}>Cancel</Button>
         </div>
       )}
 
@@ -360,8 +387,9 @@ function CropProfilesTab({ profiles, onProfilesChanged }: {
           file={sampleFile}
           profiles={profiles}
           mode="save"
+          editProfile={editingProfile ?? undefined}
           onCropConfirmed={handleCropConfirmed}
-          onCancel={() => { setSampleFile(null); setShowCreator(false) }}
+          onCancel={() => { setSampleFile(null); setShowCreator(false); setEditingProfile(null) }}
           onProfilesChanged={onProfilesChanged}
         />
       )}
@@ -377,17 +405,13 @@ export default function LabelsPage() {
 
   useEffect(() => { setProfiles(loadProfiles()) }, [])
 
-  function handleNeedProfile() {
-    setActiveTab('profiles')
-  }
-
   return (
     <div className="p-6 max-w-5xl">
       <div className="mb-6">
         <h1 className="text-2xl font-bold">Label Sorting</h1>
         <p className="text-sm text-muted-foreground mt-1">
-          Upload Flipkart label PDFs to sort by product for dispatch. Labels are cropped and grouped automatically.
-          <InfoTooltip content="Upload the label PDFs you download from Flipkart Seller Hub. The system parses each label, matches it to your master catalog, and outputs sorted PDFs — one per product — ready for your label printer." />
+          Upload label PDFs to sort by product for dispatch. Labels are cropped and grouped automatically.
+          <InfoTooltip content="Upload the label PDFs you download from your marketplace. The system parses each label, matches it to your master catalog, and outputs sorted PDFs — one per product — ready for your label printer." />
         </p>
       </div>
 
@@ -400,7 +424,7 @@ export default function LabelsPage() {
         </TabsList>
 
         <TabsContent value="sort">
-          <SortLabelsTab profiles={profiles} onNeedProfile={handleNeedProfile} />
+          <SortLabelsTab profiles={profiles} onNeedProfile={() => setActiveTab('profiles')} />
         </TabsContent>
 
         <TabsContent value="profiles">

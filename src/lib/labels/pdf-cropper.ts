@@ -3,27 +3,17 @@ import type { ResolvedLabel, LabelGroup } from './types'
 import type { CropBox, LabelSize } from '@/components/labels/LabelCropSelector'
 
 /**
- * Given groups, source PDF files, a user-defined crop box, and a label size,
- * produce one cropped PDF per product group.
- * Each output page matches the selected label size exactly, edge-to-edge.
+ * Crop and embed a region of source PDF pages into output pages at a target size.
+ * Used for both label and invoice cropping.
  */
-export async function cropAndGroupLabels(
+async function cropPagesToSize(
   groups: LabelGroup[],
-  sourceFiles: File[],
+  sourceDocs: PDFDocument[],
   cropBox: CropBox,
-  labelSize?: LabelSize,
+  targetWidth: number,
+  targetHeight: number,
+  fileNameSuffix: string,
 ): Promise<Map<string, Uint8Array>> {
-  const LABEL_WIDTH = labelSize?.widthPt ?? 288
-  const LABEL_HEIGHT = labelSize?.heightPt ?? 432
-
-  // Load all source PDFs into pdf-lib documents
-  const sourceDocs: PDFDocument[] = []
-  for (const file of sourceFiles) {
-    const bytes = await file.arrayBuffer()
-    const doc = await PDFDocument.load(bytes)
-    sourceDocs.push(doc)
-  }
-
   const result = new Map<string, Uint8Array>()
 
   for (const group of groups) {
@@ -36,29 +26,22 @@ export async function cropAndGroupLabels(
       const sourcePage = sourceDoc.getPage(pageRef.pageIndex)
       const { width: pageWidth, height: pageHeight } = sourcePage.getSize()
 
-      // Convert ratio-based crop box to PDF coordinates
-      // CropBox ratios: x/y from top-left corner (canvas coordinates)
-      // pdf-lib: x/y from bottom-left corner
       const cropX = cropBox.x * pageWidth
       const cropW = cropBox.width * pageWidth
       const cropH = cropBox.height * pageHeight
-      // Flip Y: canvas y=0 is top, pdf y=0 is bottom
       const cropY = pageHeight - (cropBox.y * pageHeight) - cropH
 
-      // Use embedPages with boundingBox to clip directly — no temp doc needed
       const [embeddedPage] = await outputDoc.embedPages(
         [sourcePage],
         [{ left: cropX, bottom: cropY, right: cropX + cropW, top: cropY + cropH }],
       )
 
-      // Create output page at exact label size, stretch to fill edge-to-edge
-      // Since crop box is aspect-ratio locked to the label size, this fills perfectly
-      const newPage = outputDoc.addPage([LABEL_WIDTH, LABEL_HEIGHT])
-      newPage.drawPage(embeddedPage, { x: 0, y: 0, width: LABEL_WIDTH, height: LABEL_HEIGHT })
+      const newPage = outputDoc.addPage([targetWidth, targetHeight])
+      newPage.drawPage(embeddedPage, { x: 0, y: 0, width: targetWidth, height: targetHeight })
     }
 
     const pdfBytes = await outputDoc.save()
-    const fileName = `${group.masterSkuName} — ${group.count} labels`
+    const fileName = `${group.masterSkuName} — ${group.count} ${fileNameSuffix}`
     result.set(fileName, pdfBytes)
   }
 
@@ -66,8 +49,53 @@ export async function cropAndGroupLabels(
 }
 
 /**
+ * Load source PDF files into pdf-lib documents (shared between label and invoice cropping).
+ */
+async function loadSourceDocs(sourceFiles: File[]): Promise<PDFDocument[]> {
+  const docs: PDFDocument[] = []
+  for (const file of sourceFiles) {
+    const bytes = await file.arrayBuffer()
+    docs.push(await PDFDocument.load(bytes))
+  }
+  return docs
+}
+
+/**
+ * Crop labels from source PDFs using user-defined crop box.
+ */
+export async function cropAndGroupLabels(
+  groups: LabelGroup[],
+  sourceFiles: File[],
+  cropBox: CropBox,
+  labelSize?: LabelSize,
+): Promise<Map<string, Uint8Array>> {
+  const sourceDocs = await loadSourceDocs(sourceFiles)
+  return cropPagesToSize(
+    groups, sourceDocs, cropBox,
+    labelSize?.widthPt ?? 288, labelSize?.heightPt ?? 432,
+    'labels',
+  )
+}
+
+/**
+ * Crop invoices from source PDFs using user-defined invoice crop box.
+ */
+export async function cropAndGroupInvoices(
+  groups: LabelGroup[],
+  sourceFiles: File[],
+  invoiceCrop: CropBox,
+  invoiceSize?: LabelSize,
+): Promise<Map<string, Uint8Array>> {
+  const sourceDocs = await loadSourceDocs(sourceFiles)
+  return cropPagesToSize(
+    groups, sourceDocs, invoiceCrop,
+    invoiceSize?.widthPt ?? 595, invoiceSize?.heightPt ?? 842,
+    'invoices',
+  )
+}
+
+/**
  * Group resolved labels by master SKU.
- * Unmapped labels are excluded (handled separately by UnmappedSkuPanel).
  */
 export function groupLabelsByProduct(labels: ResolvedLabel[]): LabelGroup[] {
   const groups = new Map<string, LabelGroup>()

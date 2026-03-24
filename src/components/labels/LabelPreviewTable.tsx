@@ -3,16 +3,19 @@
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'
-import { Download } from 'lucide-react'
+import { Download, FileText } from 'lucide-react'
 import type { LabelGroup, LabelSortResult } from '@/lib/labels/types'
 
 interface LabelPreviewTableProps {
   result: LabelSortResult
+  hasInvoice?: boolean
   onDownloadGroup: (group: LabelGroup) => void
+  onDownloadInvoiceGroup?: (group: LabelGroup) => void
   onDownloadAll: () => void
+  onDownloadAllInvoices?: () => void
 }
 
-export function LabelPreviewTable({ result, onDownloadGroup, onDownloadAll }: LabelPreviewTableProps) {
+export function LabelPreviewTable({ result, hasInvoice, onDownloadGroup, onDownloadInvoiceGroup, onDownloadAll, onDownloadAllInvoices }: LabelPreviewTableProps) {
   return (
     <div className="space-y-4">
       <div className="flex gap-4 text-sm">
@@ -41,21 +44,29 @@ export function LabelPreviewTable({ result, onDownloadGroup, onDownloadAll }: La
               <TableCell className="text-center">{group.codCount > 0 && <Badge variant="outline">{group.codCount}</Badge>}</TableCell>
               <TableCell className="text-center">{group.prepaidCount > 0 && <Badge variant="secondary">{group.prepaidCount}</Badge>}</TableCell>
               <TableCell className="text-xs text-muted-foreground">{group.orgBreakdown.map(o => `${o.orgName} (${o.count})`).join(', ')}</TableCell>
-              <TableCell className="text-right">
+              <TableCell className="text-right space-x-1">
                 <Button variant="ghost" size="sm" onClick={() => onDownloadGroup(group)}>
-                  <Download className="h-4 w-4 mr-1" />PDF
+                  <Download className="h-4 w-4 mr-1" />Labels
                 </Button>
+                {hasInvoice && onDownloadInvoiceGroup && (
+                  <Button variant="ghost" size="sm" onClick={() => onDownloadInvoiceGroup(group)}>
+                    <FileText className="h-4 w-4 mr-1" />Invoices
+                  </Button>
+                )}
               </TableCell>
             </TableRow>
           ))}
         </TableBody>
       </Table>
 
-      {result.groups.length > 1 && (
-        <div className="flex justify-end">
-          <Button onClick={onDownloadAll}><Download className="h-4 w-4 mr-2" />Download All ({result.groups.length} PDFs)</Button>
-        </div>
-      )}
+      <div className="flex justify-end gap-2">
+        {result.groups.length > 1 && (
+          <Button onClick={onDownloadAll}><Download className="h-4 w-4 mr-2" />All Labels ({result.groups.length} PDFs)</Button>
+        )}
+        {hasInvoice && onDownloadAllInvoices && result.groups.length > 1 && (
+          <Button variant="outline" onClick={onDownloadAllInvoices}><FileText className="h-4 w-4 mr-2" />All Invoices ({result.groups.length} PDFs)</Button>
+        )}
+      </div>
     </div>
   )
 }
