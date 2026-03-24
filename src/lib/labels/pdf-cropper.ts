@@ -45,19 +45,13 @@ export async function cropAndGroupLabels(
       // Flip Y: canvas y=0 is top, pdf y=0 is bottom
       const cropY = pageHeight - (cropBox.y * pageHeight) - cropH
 
-      // Step 1: Create a temp doc with just the cropped area
-      const tempDoc = await PDFDocument.create()
-      const [tempPage] = await tempDoc.copyPages(sourceDoc, [pageRef.pageIndex])
-      tempPage.setCropBox(cropX, cropY, cropW, cropH)
-      tempPage.setMediaBox(cropX, cropY, cropW, cropH)
-      tempDoc.addPage(tempPage)
+      // Use embedPages with boundingBox to clip directly — no temp doc needed
+      const [embeddedPage] = await outputDoc.embedPages(
+        [sourcePage],
+        [{ left: cropX, bottom: cropY, right: cropX + cropW, top: cropY + cropH }],
+      )
 
-      // Step 2: Embed the cropped page into the output doc
-      const tempBytes = await tempDoc.save()
-      const embeddableDoc = await PDFDocument.load(tempBytes)
-      const [embeddedPage] = await outputDoc.embedPages(embeddableDoc.getPages())
-
-      // Step 3: Create a new 4x6 page and draw the embedded label scaled to fit
+      // Create a new 4x6 page and draw the embedded label scaled to fit
       const newPage = outputDoc.addPage([LABEL_WIDTH, LABEL_HEIGHT])
       const scale = Math.min(LABEL_WIDTH / embeddedPage.width, LABEL_HEIGHT / embeddedPage.height)
       const scaledW = embeddedPage.width * scale
