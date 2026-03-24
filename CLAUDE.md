@@ -46,6 +46,7 @@ ssh -i ~/.ssh/id_ed25519 -o StrictHostKeyChecking=no root@46.225.117.86 "cd /opt
 - **Database:** Supabase (PostgreSQL) — project `aorcopafrixqlbgckrpu`
 - **Styling:** Tailwind CSS v4 + shadcn/ui (Radix UI)
 - **CSV parsing:** Papa Parse (`papaparse`)
+- **PDF processing:** pdfjs-dist (text extraction) + pdf-lib (cropping/generation) — browser-side
 - **Auth:** Supabase Auth (email/password) + Next.js middleware proxy
 - **Containerisation:** Docker + docker-compose, deployed to Hetzner
 
@@ -119,6 +120,18 @@ delivery_rate   NUMERIC(5,4)  DEFAULT 1.0    -- historical delivered÷dispatched
 | COGS single-SKU API ✅ | `src/app/api/cogs/[skuId]/route.ts` |
 | COGS page ✅ | `src/app/(dashboard)/cogs/page.tsx` |
 | Popover UI component | `src/components/ui/popover.tsx` |
+| Labels page (2-tab: Sort + Crop Profiles) | `src/app/(dashboard)/labels/page.tsx` |
+| Label crop selector component | `src/components/labels/LabelCropSelector.tsx` |
+| Label upload zone component | `src/components/labels/LabelUploadZone.tsx` |
+| Label preview table component | `src/components/labels/LabelPreviewTable.tsx` |
+| Unmapped SKU panel component | `src/components/labels/UnmappedSkuPanel.tsx` |
+| Label types | `src/lib/labels/types.ts` |
+| Label PDF parser (pdf.js text extraction) | `src/lib/labels/pdf-parser.ts` |
+| Label PDF cropper (pdf-lib crop + resize) | `src/lib/labels/pdf-cropper.ts` |
+| Label SKU resolution API | `src/app/api/labels/resolve-skus/route.ts` |
+| Label order ingestion API | `src/app/api/labels/ingest/route.ts` |
+| PDF.js worker (local, not CDN) | `public/pdf.worker.min.mjs` |
+| Vision & roadmap doc | `docs/superpowers/specs/2026-03-23-fktool-vision-and-roadmap.md` |
 
 ---
 
@@ -157,7 +170,7 @@ packaging_purchases     — bulk purchases of packaging materials        ✅ cre
 
 **New nav order (final target):**
 ```
-Dashboard → Master Catalog → Purchases → Invoices → Packaging → COGS → Import Data → Inventory & P&L → Settings
+Dashboard → Master Catalog → Purchases → Invoices → Packaging → Labels → COGS → Import Data → Inventory & P&L → Settings
 ```
 
 ---
@@ -169,6 +182,69 @@ All 4 phases shipped. Full COGS system is implemented and deployed.
 ### Bugs fixed (previous session)
 - **MasterSku field name gotcha:** `packaging/page.tsx` SKU Specs tab was using `sku.sku_code` / `sku.product_name` which don't exist on the type — actual field is `sku.name`. Always check the `MasterSku` type; only `id`, `name`, `sku_code` (wait — only `name` comes back from the API join).
 - **Catalog API `total_cogs` remnant:** `master-skus/route.ts` still referenced the dropped `total_cogs` column in the warehouse aggregation query — removed it.
+
+---
+
+## ✅ Label Sorting — Complete (2026-03-24)
+
+### What it does
+Replaces Quick Labels tool. Staff uploads Flipkart label PDFs → system parses each page, matches platform SKU → master SKU via `sku_mappings`, groups labels by master product, crops to just the shipping label, outputs sorted PDFs (one per product) sized for label printers.
+
+### Architecture
+- **2-tab page:** Tab 1 "Sort Labels" (daily workflow), Tab 2 "Crop Profiles" (configuration)
+- **Browser-side PDF processing:** pdf.js for text extraction, pdf-lib for cropping/embedding
+- **User-guided cropping:** user draws rectangle on first page to define label area (no auto-detection)
+- **Aspect-ratio locked:** crop box locks to selected label size ratio (e.g., 4x6 = 2:3)
+- **Named crop profiles:** saved to localStorage, auto-applied on next upload
+- **Order ingestion:** side effect of sorting — auto-creates `orders` + `dispatches` rows
+- **Label sizes:** 4x6, 4x4, 3x5, 2x1 inches (extensible)
+
+### Key gotchas
+- **PDF.js worker must be local:** CDN URL (`cdnjs.cloudflare.com`) fails in Docker. Worker file is at `public/pdf.worker.min.mjs`, loaded as `/pdf.worker.min.mjs`. If pdfjs-dist is upgraded, re-copy the worker.
+- **pdf.js dynamic import required:** `import('pdfjs-dist')` — static import crashes SSR due to missing `DOMMatrix`.
+- **Coordinate system mismatch:** Canvas y=0 is top, pdf-lib y=0 is bottom. Crop box stores ratios (0-1) from canvas top-left. Conversion: `pdfY = pageHeight - (canvasY * pageHeight) - cropHeight`.
+- **embedPages with boundingBox:** Use `outputDoc.embedPages([page], [{ left, bottom, right, top }])` for reliable cropping — NOT setCropBox/setMediaBox which loses context in multi-step flows.
+- **Crop profiles in localStorage:** Key is `fk-label-crop-profiles`. Array of `{ name, labelSize, crop: { x, y, width, height } }`. Future: move to DB for multi-device support.
+- **Unmapped SKUs not silent:** Shown in yellow UnmappedSkuPanel. Owner/manager can map inline. Staff sees "Contact manager."
+
+### DB tables used
+- `orders` — auto-created from label data (platform_order_id, master_sku_id, marketplace_account_id, sale_price, status='dispatched')
+- `dispatches` — auto-created linked to orders (warehouse_id, dispatch_date, courier, awb_number)
+- `sku_mappings` — resolves platform SKU → master SKU (case-insensitive lookup)
+- `marketplace_accounts` + `organizations` — resolves GSTIN from label → org
+
+### Still to do (next session)
+- Edit profiles (re-open crop selector with saved crop pre-loaded)
+- Invoice crop area (second crop per profile for A4 invoices — Amazon requires separate invoice printing)
+- Custom label sizes (user-defined width x height)
+- Move profiles to DB (currently localStorage only)
+
+---
+
+## ✅ Tenant Merge — Complete (2026-03-24)
+
+Both user accounts (`shashwat@e4a.in` + `finance@e4a.in`) now share tenant "Nuvio" (`2d1f3411-2b1a-4674-a5ec-353bbd82ebb8`). The old "E4A Test" tenant was deleted (had no real data).
+
+### Organizations (3 active)
+| Org | Legal Name | GSTIN | Location |
+|-----|-----------|-------|----------|
+| E4A | E4A Partner Private Limited | 06AAICE3494R1ZV | GGN + BLR (two registrations) |
+| ESS Collective | ESS Collective | 06AQVPM0300Q1ZH | Gurgaon |
+| ESS Collectives | ESS Collectives | PLACEHOLDER | Bangalore |
+
+### Marketplace Accounts (10)
+| Account | Platform | Org | Location |
+|---------|----------|-----|----------|
+| NuvioCentral | Flipkart | E4A | Gurgaon |
+| BodhNest | Flipkart | E4A | Bangalore |
+| NuvioStore | Flipkart | ESS Collective | Gurgaon |
+| NuvioShop | Flipkart | ESS Collectives | Bangalore |
+| Gentle | D2C | E4A | Gurgaon |
+| Livee | D2C | ESS Collectives | Bangalore |
+| Nuvio | D2C | E4A | GGN + BLR |
+| Devaara | D2C | E4A | GGN + BLR |
+| Nuvio | Amazon | ESS Collectives | Bangalore |
+| Devaara | Amazon | E4A | Gurgaon |
 
 ---
 
