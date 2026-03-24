@@ -104,8 +104,19 @@ export default function LabelsPage() {
       setResolvedLabels(resolved)
       setSortResult(buildSortResult(resolved))
 
-      // Always show crop selector — user picks a profile or draws a new box
-      setState('cropping')
+      // If saved profiles exist, auto-apply the first one and skip crop step
+      const savedProfiles = loadProfiles()
+      setCropProfiles(savedProfiles)
+      if (savedProfiles.length > 0) {
+        const profile = savedProfiles[0]
+        const size = LABEL_SIZES.find(s => s.name === profile.labelSize) ?? LABEL_SIZES[0]
+        setCropBox(profile.crop)
+        setLabelSize(size)
+        setState('ready')
+        toast.success(`Using profile "${profile.name}" — click "Adjust Crop Area" to change.`)
+      } else {
+        setState('cropping')
+      }
     } catch (e) {
       toast.error((e as Error).message)
       setState('idle')
