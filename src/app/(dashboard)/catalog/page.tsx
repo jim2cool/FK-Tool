@@ -68,7 +68,7 @@ interface EditDialogRow {
   masterSkuId: string
   masterSkuName: string
   parentName?: string
-  mappingId: string
+  mappingId: string // empty string = "add new mapping" mode
 }
 
 // ── Constants ─────────────────────────────────────────────────────────────────
@@ -342,6 +342,20 @@ export default function CatalogPage() {
     setEditError('')
   }
 
+  function openAddMapping(row: DisplayRow) {
+    setEditRow({
+      masterSkuId: row.masterSkuId,
+      masterSkuName: row.masterSkuName,
+      parentName: row.parentName,
+      mappingId: '', // empty = add mode
+    })
+    setEditName(row.parentName ?? row.masterSkuName)
+    setEditChannel('')
+    setEditAccountName('')
+    setEditSkuId('')
+    setEditError('')
+  }
+
   const editChannelOptions = useMemo(() => {
     const seen = new Set<string>()
     for (const a of accounts) seen.add(a.platform)
@@ -367,6 +381,7 @@ export default function CatalogPage() {
 
     setEditSaving(true)
     setEditError('')
+    const isAddMode = !editRow.mappingId
     try {
       if (!editRow.parentName) {
         const newName = editName.trim()
@@ -384,23 +399,44 @@ export default function CatalogPage() {
         }
       }
 
-      const res = await fetch('/api/catalog/sku-mappings', {
-        method: 'PATCH',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          id: editRow.mappingId,
-          platform: editChannel,
-          platform_sku: editSkuId.trim(),
-          marketplace_account_id: acct.id,
-        }),
-      })
-      if (!res.ok) {
-        const { error } = await res.json()
-        setEditError(error ?? 'Failed to update mapping')
-        return
+      if (isAddMode) {
+        // CREATE new mapping
+        const res = await fetch('/api/catalog/sku-mappings', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            master_sku_id: editRow.masterSkuId,
+            platform: editChannel,
+            platform_sku: editSkuId.trim(),
+            marketplace_account_id: acct.id,
+          }),
+        })
+        if (!res.ok) {
+          const { error } = await res.json()
+          setEditError(error ?? 'Failed to add mapping')
+          return
+        }
+        toast.success('Mapping added')
+      } else {
+        // UPDATE existing mapping
+        const res = await fetch('/api/catalog/sku-mappings', {
+          method: 'PATCH',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            id: editRow.mappingId,
+            platform: editChannel,
+            platform_sku: editSkuId.trim(),
+            marketplace_account_id: acct.id,
+          }),
+        })
+        if (!res.ok) {
+          const { error } = await res.json()
+          setEditError(error ?? 'Failed to update mapping')
+          return
+        }
+        toast.success('Mapping updated')
       }
 
-      toast.success('Mapping updated')
       setEditRow(null)
       await loadData()
     } finally {
@@ -630,9 +666,14 @@ export default function CatalogPage() {
                     {/* Channel & Mappings — all mappings stacked in one cell */}
                     <TableCell className="py-3">
                       {row.isUnmapped ? (
-                        <Badge variant="destructive" className="text-xs font-normal">
-                          Unmapped
-                        </Badge>
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          className="h-auto px-2 py-0.5 text-xs text-red-600 hover:text-red-700 hover:bg-red-50 border border-red-200"
+                          onClick={() => openAddMapping(row)}
+                        >
+                          + Add Mapping
+                        </Button>
                       ) : (
                         <div className="space-y-1.5">
                           {row.mappings.map(m => (
@@ -656,6 +697,14 @@ export default function CatalogPage() {
                               </Button>
                             </div>
                           ))}
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            className="h-5 text-xs text-muted-foreground hover:text-foreground px-1"
+                            onClick={() => openAddMapping(row)}
+                          >
+                            + Add
+                          </Button>
                         </div>
                       )}
                     </TableCell>
@@ -705,7 +754,7 @@ export default function CatalogPage() {
         <Dialog open={!!editRow} onOpenChange={open => !open && setEditRow(null)}>
           <DialogContent>
             <DialogHeader>
-              <DialogTitle>Edit Mapping</DialogTitle>
+              <DialogTitle>{editRow?.mappingId ? 'Edit Mapping' : 'Add Mapping'}</DialogTitle>
             </DialogHeader>
             <div className="space-y-4 py-2">
               <div className="space-y-1">
@@ -780,7 +829,7 @@ export default function CatalogPage() {
             <DialogFooter>
               <Button variant="outline" onClick={() => setEditRow(null)}>Cancel</Button>
               <Button onClick={handleEditSave} disabled={editSaving}>
-                {editSaving ? 'Saving…' : 'Save'}
+                {editSaving ? 'Saving…' : editRow?.mappingId ? 'Save' : 'Add Mapping'}
               </Button>
             </DialogFooter>
           </DialogContent>

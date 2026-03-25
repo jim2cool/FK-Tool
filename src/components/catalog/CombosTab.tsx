@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useState, useCallback } from 'react'
+import { useEffect, useState, useCallback, useMemo } from 'react'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
@@ -10,7 +10,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { InfoTooltip } from '@/components/ui/info-tooltip'
 import { toast } from 'sonner'
-import { Package, Pencil, Plus, Trash2, X } from 'lucide-react'
+import { Link2, Package, Pencil, Plus, Trash2, X } from 'lucide-react'
 
 // ── Types ──────────────────────────────────────────────────────────
 
@@ -42,33 +42,54 @@ interface MasterSkuOption {
   name: string
 }
 
+interface MarketplaceAccount {
+  id: string
+  account_name: string
+  platform: string
+}
+
 // ── Component ─────────────────────────────────────────────────────
 
 export function CombosTab() {
   const [combos, setCombos] = useState<Combo[]>([])
   const [masterSkus, setMasterSkus] = useState<MasterSkuOption[]>([])
+  const [accounts, setAccounts] = useState<MarketplaceAccount[]>([])
   const [loading, setLoading] = useState(true)
 
-  // Create/edit dialog
+  // Create/edit combo dialog
   const [dialogOpen, setDialogOpen] = useState(false)
   const [editingId, setEditingId] = useState<string | null>(null)
   const [comboName, setComboName] = useState('')
   const [components, setComponents] = useState<Array<{ masterSkuId: string; quantity: number }>>([])
   const [saving, setSaving] = useState(false)
 
+  // Add mapping dialog
+  const [mappingDialogOpen, setMappingDialogOpen] = useState(false)
+  const [mappingComboId, setMappingComboId] = useState<string | null>(null)
+  const [mappingComboName, setMappingComboName] = useState('')
+  const [mappingChannel, setMappingChannel] = useState('')
+  const [mappingAccountName, setMappingAccountName] = useState('')
+  const [mappingSkuId, setMappingSkuId] = useState('')
+  const [mappingSaving, setMappingSaving] = useState(false)
+  const [mappingError, setMappingError] = useState('')
+
   const loadData = useCallback(async () => {
     setLoading(true)
     try {
-      const [combosRes, skusRes] = await Promise.all([
+      const [combosRes, skusRes, accountsRes] = await Promise.all([
         fetch('/api/catalog/combos'),
         fetch('/api/catalog/master-skus'),
+        fetch('/api/marketplace-accounts'),
       ])
       if (!combosRes.ok) throw new Error('Failed to fetch combos')
       if (!skusRes.ok) throw new Error('Failed to fetch catalog')
+      if (!accountsRes.ok) throw new Error('Failed to fetch accounts')
       const combosData: Combo[] = await combosRes.json()
       const skusData = await skusRes.json()
+      const accountsData: MarketplaceAccount[] = await accountsRes.json()
 
       setCombos(combosData ?? [])
+      setAccounts(accountsData ?? [])
 
       // Flatten master SKUs for the dropdown
       const flat: MasterSkuOption[] = (skusData ?? []).flatMap(
@@ -84,6 +105,8 @@ export function CombosTab() {
   }, [])
 
   useEffect(() => { loadData() }, [loadData])
+
+  // ── Combo create/edit ───────────────────────────────────────────
 
   function openCreate() {
     setEditingId(null)
@@ -164,8 +187,90 @@ export function CombosTab() {
     }
   }
 
-  function getSkuName(id: string) {
-    return masterSkus.find(s => s.id === id)?.name ?? 'Unknown'
+  // ── Add mapping dialog ──────────────────────────────────────────
+
+  function openAddMapping(combo: Combo) {
+    setMappingComboId(combo.id)
+    setMappingComboName(combo.name)
+    setMappingChannel('')
+    setMappingAccountName('')
+    setMappingSkuId('')
+    setMappingError('')
+    setMappingDialogOpen(true)
+  }
+
+  const mappingChannelOptions = useMemo(() => {
+    const seen = new Set<string>()
+    for (const a of accounts) seen.add(a.platform)
+    return [...seen].sort()
+  }, [accounts])
+
+  const mappingAccountOptions = useMemo(() => {
+    if (!mappingChannel) return accounts.map(a => a.account_name)
+    return accounts.filter(a => a.platform === mappingChannel).map(a => a.account_name)
+  }, [accounts, mappingChannel])
+
+  async function handleAddMapping() {
+    if (!mappingComboId) return
+    if (!mappingSkuId.trim()) { setMappingError('Platform SKU ID is required'); return }
+    if (!mappingChannel) { setMappingError('Channel is required'); return }
+    if (!mappingAccountName) { setMappingError('Account is required'); return }
+
+    const acct = accounts.find(a => a.platform === mappingChannel && a.account_name === mappingAccountName)
+    if (!acct) { setMappingError(`Account '${mappingAccountName}' not found`); return }
+
+    setMappingSaving(true)
+    setMappingError('')
+    try {
+      const res = await fetch('/api/catalog/sku-mappings', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          combo_product_id: mappingComboId,
+          platform: mappingChannel,
+          platform_sku: mappingSkuId.trim(),
+          marketplace_account_id: acct.id,
+        }),
+      })
+      if (!res.ok) {
+        const { error } = await res.json()
+        setMappingError(error ?? 'Failed to add mapping')
+        return
+      }
+      toast.success('Mapping added')
+      setMappingDialogOpen(false)
+      await loadData()
+    } catch (e) {
+      setMappingError((e as Error).message)
+    } finally {
+      setMappingSaving(false)
+    }
+  }
+
+  async function handleDeleteMapping(mappingId: string) {
+    try {
+      const res = await fetch('/api/catalog/sku-mappings', {
+        method: 'DELETE',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ id: mappingId }),
+      })
+      if (!res.ok) throw new Error('Failed to delete mapping')
+      toast.success('Mapping removed')
+      await loadData()
+    } catch (e) {
+      toast.error((e as Error).message)
+    }
+  }
+
+  // ── Helpers ─────────────────────────────────────────────────────
+
+  function getAccountName(id: string | null) {
+    if (!id) return null
+    return accounts.find(a => a.id === id)?.account_name ?? null
+  }
+
+  function capitalize(s: string): string {
+    return s.charAt(0).toUpperCase() + s.slice(1)
   }
 
   if (loading) {
@@ -205,7 +310,12 @@ export function CombosTab() {
             <TableRow>
               <TableHead>Combo Name</TableHead>
               <TableHead>Components</TableHead>
-              <TableHead>Platform SKU Mappings</TableHead>
+              <TableHead>
+                <span className="flex items-center gap-1">
+                  Platform SKU Mappings
+                  <InfoTooltip content="Map channel SKU IDs to this combo. Each channel listing that sells this combo should be mapped here." />
+                </span>
+              </TableHead>
               <TableHead className="w-[100px]">Actions</TableHead>
             </TableRow>
           </TableHeader>
@@ -223,17 +333,38 @@ export function CombosTab() {
                   </div>
                 </TableCell>
                 <TableCell>
-                  {combo.skuMappings.length === 0 ? (
-                    <span className="text-xs text-muted-foreground">No mappings</span>
-                  ) : (
-                    <div className="flex flex-wrap gap-1">
-                      {combo.skuMappings.map(m => (
-                        <Badge key={m.id} variant="outline" className="text-xs font-mono">
-                          {m.platformSku}
+                  <div className="space-y-1.5">
+                    {combo.skuMappings.map(m => (
+                      <div key={m.id} className="flex items-center gap-2 group/m">
+                        <Badge variant="secondary" className="text-xs font-medium shrink-0">
+                          {capitalize(m.platform)}
                         </Badge>
-                      ))}
-                    </div>
-                  )}
+                        <span className="text-sm text-muted-foreground shrink-0">
+                          {getAccountName(m.marketplaceAccountId) ?? '—'}
+                        </span>
+                        <span className="font-mono text-sm truncate">
+                          {m.platformSku}
+                        </span>
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          className="h-5 w-5 opacity-0 group-hover/m:opacity-60 hover:!opacity-100 transition-opacity shrink-0 ml-auto text-red-500 hover:text-red-600"
+                          onClick={() => handleDeleteMapping(m.id)}
+                        >
+                          <X className="h-3 w-3" />
+                        </Button>
+                      </div>
+                    ))}
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      className="h-6 text-xs text-muted-foreground hover:text-foreground px-1.5"
+                      onClick={() => openAddMapping(combo)}
+                    >
+                      <Link2 className="h-3 w-3 mr-1" />
+                      Add Mapping
+                    </Button>
+                  </div>
                 </TableCell>
                 <TableCell>
                   <div className="flex items-center gap-1">
@@ -251,7 +382,7 @@ export function CombosTab() {
         </Table>
       )}
 
-      {/* Create / Edit Dialog */}
+      {/* Create / Edit Combo Dialog */}
       <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
         <DialogContent className="max-w-lg">
           <DialogHeader>
@@ -317,6 +448,76 @@ export function CombosTab() {
             <Button variant="outline" onClick={() => setDialogOpen(false)}>Cancel</Button>
             <Button onClick={handleSave} disabled={saving}>
               {saving ? 'Saving...' : editingId ? 'Update' : 'Create'}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Add Mapping Dialog */}
+      <Dialog open={mappingDialogOpen} onOpenChange={setMappingDialogOpen}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Map Platform SKU → {mappingComboName}</DialogTitle>
+          </DialogHeader>
+          <div className="space-y-4 py-2">
+            <div className="space-y-1">
+              <Label>Channel</Label>
+              <Select
+                value={mappingChannel || '__none__'}
+                onValueChange={v => {
+                  setMappingChannel(v === '__none__' ? '' : v)
+                  setMappingAccountName('')
+                }}
+              >
+                <SelectTrigger>
+                  <SelectValue placeholder="Select channel…" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="__none__">Select channel…</SelectItem>
+                  {mappingChannelOptions.map(c => (
+                    <SelectItem key={c} value={c}>{capitalize(c)}</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+
+            <div className="space-y-1">
+              <Label>Account</Label>
+              <Select
+                value={mappingAccountName || '__none__'}
+                onValueChange={v => setMappingAccountName(v === '__none__' ? '' : v)}
+                disabled={!mappingChannel}
+              >
+                <SelectTrigger>
+                  <SelectValue placeholder="Select account…" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="__none__">Select account…</SelectItem>
+                  {mappingAccountOptions.map(a => (
+                    <SelectItem key={a} value={a}>{a}</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+
+            <div className="space-y-1">
+              <Label>Platform SKU ID</Label>
+              <Input
+                className="font-mono"
+                value={mappingSkuId}
+                onChange={e => setMappingSkuId(e.target.value)}
+                placeholder="e.g. COMBO-SOAP-3PK"
+              />
+            </div>
+
+            {mappingError && (
+              <p className="text-sm text-destructive">{mappingError}</p>
+            )}
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setMappingDialogOpen(false)}>Cancel</Button>
+            <Button onClick={handleAddMapping} disabled={mappingSaving}>
+              {mappingSaving ? 'Adding…' : 'Add Mapping'}
             </Button>
           </DialogFooter>
         </DialogContent>
