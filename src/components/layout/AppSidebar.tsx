@@ -12,8 +12,8 @@ const navItems = [
   { href: '/packaging', label: 'Packaging', icon: Box },
   { href: '/labels', label: 'Labels', icon: Tags },
   { href: '/cogs', label: 'COGS', icon: Calculator },
+  { href: '/pnl', label: 'Profit & Loss', icon: BarChart3 },
   { href: '/imports', label: 'Import Data', icon: Upload },
-  { href: '/inventory', label: 'Inventory & P&L', icon: BarChart3 },
   { href: '/settings', label: 'Settings', icon: Settings },
 ]
 

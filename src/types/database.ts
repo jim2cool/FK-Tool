@@ -130,12 +130,23 @@ export interface Order {
   id: string
   tenant_id: string
   platform_order_id: string
+  order_item_id: string | null
   master_sku_id: string | null
+  combo_product_id: string | null
   marketplace_account_id: string | null
   quantity: number
   sale_price: number
   order_date: string
   status: OrderStatus
+  fulfillment_type: string | null
+  channel: string | null
+  payment_mode: string | null
+  final_selling_price: number | null
+  gross_units: number
+  net_units: number
+  rto_units: number
+  rvp_units: number
+  cancelled_units: number
   created_at: string
 }
 
@@ -144,6 +155,7 @@ export interface OrderFinancial {
   tenant_id: string
   order_id: string
   sale_price: number
+  // Backward-compat aggregates
   commission_amount: number
   commission_rate: number
   logistics_cost: number
@@ -151,6 +163,31 @@ export interface OrderFinancial {
   projected_settlement: number
   actual_settlement: number | null
   settlement_variance: number | null
+  // Revenue details
+  accounted_net_sales: number
+  sale_amount: number
+  seller_offer_burn: number
+  // Granular platform fees (stored as negative from FK)
+  commission_fee: number
+  collection_fee: number
+  fixed_fee: number
+  offer_adjustments: number
+  // Logistics fees (stored as negative from FK)
+  pick_pack_fee: number
+  forward_shipping_fee: number
+  reverse_shipping_fee: number
+  // Taxes (stored as negative from FK)
+  tax_gst: number
+  tax_tcs: number
+  tax_tds: number
+  // Benefits (positive)
+  rewards: number
+  spf_payout: number
+  // Settlement
+  amount_settled: number
+  amount_pending: number
+  // Anomaly tracking
+  anomaly_flags: Array<{ rule_key: string; message: string }>
   created_at: string
 }
 
@@ -225,6 +262,16 @@ export interface PackagingPurchase {
   gst_rate_slab: string
   vendor: string | null
   purchase_date: string
+  created_at: string
+}
+
+export interface PnlAnomalyRule {
+  id: string
+  tenant_id: string
+  rule_key: string
+  name: string
+  description: string | null
+  enabled: boolean
   created_at: string
 }
 

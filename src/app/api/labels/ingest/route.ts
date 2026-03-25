@@ -58,11 +58,13 @@ export async function POST(request: Request) {
         // Combo: create one order + dispatch per component
         let comboSuccess = true
         for (const comp of label.components) {
+          const itemId = `${label.orderId}_c${label.components!.indexOf(comp)}`
           const { data: order, error: orderError } = await supabase
             .from('orders')
             .insert({
               tenant_id: tenantId,
               platform_order_id: label.orderId,
+              order_item_id: itemId,
               master_sku_id: comp.masterSkuId,
               marketplace_account_id: label.marketplaceAccountId,
               quantity: comp.quantity,
@@ -109,6 +111,7 @@ export async function POST(request: Request) {
           .insert({
             tenant_id: tenantId,
             platform_order_id: label.orderId,
+            order_item_id: label.orderId,
             master_sku_id: label.masterSkuId,
             marketplace_account_id: label.marketplaceAccountId,
             quantity: label.quantity || 1,
