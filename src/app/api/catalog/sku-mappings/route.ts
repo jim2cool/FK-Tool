@@ -18,6 +18,29 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: 'Cannot set both master_sku_id and combo_product_id' }, { status: 400 })
     }
 
+    // Check if this platform SKU already exists — if so, reassign it
+    const { data: existing } = await supabase.from('sku_mappings')
+      .select('id')
+      .eq('tenant_id', tenantId)
+      .eq('platform', platform)
+      .eq('platform_sku', platform_sku)
+      .maybeSingle()
+
+    if (existing) {
+      // Reassign the existing mapping
+      const { data, error } = await supabase.from('sku_mappings')
+        .update({
+          master_sku_id: master_sku_id ?? null,
+          combo_product_id: combo_product_id ?? null,
+          marketplace_account_id,
+        })
+        .eq('id', existing.id)
+        .eq('tenant_id', tenantId)
+        .select().single()
+      if (error) throw error
+      return NextResponse.json(data)
+    }
+
     const { data, error } = await supabase.from('sku_mappings')
       .insert({
         tenant_id: tenantId,
