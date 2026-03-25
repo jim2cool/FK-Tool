@@ -19,13 +19,9 @@
 **Commits:** `ba171e0`
 **Deployed:** Yes
 
-## Known Bug to Fix Next
-- **Combo SKU mapping fails if platform SKU was previously mapped to a product** — unique constraint on `(tenant_id, platform, platform_sku)` blocks the insert. The product→product reassignment works (POST auto-reassigns), but the combo mapping dialog doesn't use this same logic. Fix: make combo mapping dialog hit the same reassignment-aware endpoint.
-
 ## What's Next
-1. **Fix combo SKU mapping reassignment** — when mapping a platform SKU to a combo that's already mapped to a product, update instead of insert
-2. **P&L per SKU** — settlement CSV import, match to orders, true profit calculation
-3. **Inventory Pipeline** — returns grading, live inventory, claims management
+1. **P&L per SKU (Phase 2)** — settlement CSV import, match to orders, true profit calculation
+2. **Inventory Pipeline (Phase 3)** — returns grading, live inventory, claims management
 
 See `docs/project-brain/BUILD-TRACKER.md` for full phased roadmap.
 
