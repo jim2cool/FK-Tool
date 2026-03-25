@@ -7,12 +7,18 @@ import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'
-import { Upload, CheckCircle2, XCircle, AlertCircle, Loader2 } from 'lucide-react'
+import { Upload, CheckCircle2, XCircle, AlertCircle, Loader2, Package, RotateCcw, DollarSign, Landmark } from 'lucide-react'
 import { createClient } from '@/lib/supabase/client'
 import { parsePnlXlsx, type ParsedPnlRow } from '@/lib/importers/pnl-xlsx-parser'
+import { parseOrdersReport, type ParsedOrderRow } from '@/lib/importers/orders-report-parser'
+import { parseReturnsReport, type ParsedReturnRow } from '@/lib/importers/returns-report-parser'
 import { toast } from 'sonner'
 
-type Step = 'select-account' | 'upload' | 'parsing' | 'preview' | 'importing' | 'results'
+type ReportType = 'orders' | 'returns' | 'pnl' | 'settlement'
+type Step = 'select-type' | 'select-account' | 'upload' | 'parsing' | 'preview' | 'importing' | 'results'
+
+// Union type for all parsed row types
+type ParsedRow = ParsedPnlRow | ParsedOrderRow | ParsedReturnRow
 
 interface Props {
   open: boolean
@@ -35,6 +41,23 @@ interface ImportResults {
   errors: string[]
 }
 
+const REPORT_TYPES: Array<{
+  type: ReportType
+  label: string
+  description: string
+  icon: typeof Package
+  disabled?: boolean
+}> = [
+  { type: 'orders', label: 'Orders Report', description: 'Import order lifecycle data (dispatch, delivery, return dates)', icon: Package },
+  { type: 'returns', label: 'Returns Report', description: 'Import return details (RTO/RVP type, reasons)', icon: RotateCcw },
+  { type: 'pnl', label: 'P&L Report', description: 'Import Flipkart P&L with fee breakdown', icon: DollarSign },
+  { type: 'settlement', label: 'Settlement Report', description: 'Import settlement/payment details', icon: Landmark, disabled: true },
+]
+
+function needsAccountStep(reportType: ReportType): boolean {
+  return reportType === 'pnl' || reportType === 'orders'
+}
+
 function fmt(n: number) {
   return new Intl.NumberFormat('en-IN', {
     style: 'currency',
@@ -43,11 +66,46 @@ function fmt(n: number) {
   }).format(n)
 }
 
+function getDialogTitle(step: Step, reportType: ReportType, rowCount: number): string {
+  const typeLabel = REPORT_TYPES.find(r => r.type === reportType)?.label ?? 'Report'
+  switch (step) {
+    case 'select-type': return 'Import Flipkart Data'
+    case 'select-account': return `Import ${typeLabel}`
+    case 'upload': return `Upload ${typeLabel}`
+    case 'parsing': return 'Parsing...'
+    case 'preview': return `Preview — ${rowCount} rows`
+    case 'importing': return 'Importing...'
+    case 'results': return 'Import Complete'
+  }
+}
+
+function getUploadDescription(reportType: ReportType): string {
+  switch (reportType) {
+    case 'orders': return 'Orders Report'
+    case 'returns': return 'Returns Report'
+    case 'pnl': return 'P&L'
+    default: return 'Report'
+  }
+}
+
+// Helper to get identifier for duplicate checking
+function getRowIdentifier(row: ParsedRow, reportType: ReportType): string {
+  if (reportType === 'pnl') return (row as ParsedPnlRow).orderItemId
+  if (reportType === 'orders') return (row as ParsedOrderRow).orderItemId
+  if (reportType === 'returns') return (row as ParsedReturnRow).orderItemId
+  return ''
+}
+
+function getRowError(row: ParsedRow): string | undefined {
+  return row.error
+}
+
 export function PnlImportDialog({ open, onOpenChange, onImportComplete }: Props) {
-  const [step, setStep] = useState<Step>('select-account')
+  const [step, setStep] = useState<Step>('select-type')
+  const [reportType, setReportType] = useState<ReportType>('pnl')
   const [accounts, setAccounts] = useState<MarketplaceAccount[]>([])
   const [selectedAccountId, setSelectedAccountId] = useState<string>('')
-  const [rows, setRows] = useState<ParsedPnlRow[]>([])
+  const [rows, setRows] = useState<ParsedRow[]>([])
   const [duplicateItemIds, setDuplicateItemIds] = useState<Set<string>>(new Set())
   const [results, setResults] = useState<ImportResults | null>(null)
   const [loadingAccounts, setLoadingAccounts] = useState(false)
@@ -55,17 +113,18 @@ export function PnlImportDialog({ open, onOpenChange, onImportComplete }: Props)
 
   // Compute counts
   const duplicateIndices = new Set(
-    rows.map((r, i) => duplicateItemIds.has(r.orderItemId) ? i : -1).filter(i => i >= 0)
+    rows.map((r, i) => duplicateItemIds.has(getRowIdentifier(r, reportType)) ? i : -1).filter(i => i >= 0)
   )
   const errorIndices = new Set(
-    rows.map((r, i) => r.error ? i : -1).filter(i => i >= 0)
+    rows.map((r, i) => getRowError(r) ? i : -1).filter(i => i >= 0)
   )
   const dupCount = duplicateIndices.size
   const errorCount = errorIndices.size
   const importableCount = rows.length - dupCount - errorCount
 
   const reset = useCallback(() => {
-    setStep('select-account')
+    setStep('select-type')
+    setReportType('pnl')
     setSelectedAccountId('')
     setRows([])
     setDuplicateItemIds(new Set())
@@ -106,10 +165,19 @@ export function PnlImportDialog({ open, onOpenChange, onImportComplete }: Props)
 
     try {
       const buffer = await file.arrayBuffer()
-      const parsed = await parsePnlXlsx(buffer)
+      let parsed: ParsedRow[]
+
+      if (reportType === 'orders') {
+        parsed = await parseOrdersReport(buffer)
+      } else if (reportType === 'returns') {
+        parsed = await parseReturnsReport(buffer)
+      } else {
+        parsed = await parsePnlXlsx(buffer)
+      }
 
       if (parsed.length === 0) {
-        setParseError('No data rows found in the "Orders P&L" sheet.')
+        const sheetHint = reportType === 'pnl' ? ' in the "Orders P&L" sheet' : ''
+        setParseError(`No data rows found${sheetHint}.`)
         setStep('upload')
         return
       }
@@ -119,7 +187,7 @@ export function PnlImportDialog({ open, onOpenChange, onImportComplete }: Props)
 
       // Check for duplicates
       try {
-        const orderItemIds = parsed.map(r => r.orderItemId).filter(Boolean)
+        const orderItemIds = parsed.map(r => getRowIdentifier(r, reportType)).filter(Boolean)
         const res = await fetch('/api/pnl/check-duplicates', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
@@ -138,7 +206,7 @@ export function PnlImportDialog({ open, onOpenChange, onImportComplete }: Props)
       setParseError((e as Error).message || 'Failed to parse XLSX file')
       setStep('upload')
     }
-  }, [])
+  }, [reportType])
 
   const { getRootProps, getInputProps, isDragActive } = useDropzone({
     onDrop,
@@ -155,14 +223,25 @@ export function PnlImportDialog({ open, onOpenChange, onImportComplete }: Props)
 
     try {
       const skipIndices = [...duplicateIndices, ...errorIndices]
-      const res = await fetch('/api/pnl/import', {
+
+      let endpoint: string
+      let body: Record<string, unknown>
+
+      if (reportType === 'orders') {
+        endpoint = '/api/pnl/import-orders'
+        body = { rows, marketplaceAccountId: selectedAccountId, skipRowIndices: skipIndices }
+      } else if (reportType === 'returns') {
+        endpoint = '/api/pnl/import-returns'
+        body = { rows, skipRowIndices: skipIndices }
+      } else {
+        endpoint = '/api/pnl/import'
+        body = { rows, marketplaceAccountId: selectedAccountId, skipRowIndices: skipIndices }
+      }
+
+      const res = await fetch(endpoint, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          rows,
-          marketplaceAccountId: selectedAccountId,
-          skipRowIndices: skipIndices,
-        }),
+        body: JSON.stringify(body),
       })
 
       if (!res.ok) {
@@ -182,25 +261,180 @@ export function PnlImportDialog({ open, onOpenChange, onImportComplete }: Props)
     }
   }
 
+  function handleSelectType(type: ReportType) {
+    setReportType(type)
+    if (needsAccountStep(type)) {
+      setStep('select-account')
+    } else {
+      setStep('upload')
+    }
+  }
+
+  function handleBackFromUpload() {
+    if (needsAccountStep(reportType)) {
+      setStep('select-account')
+    } else {
+      setStep('select-type')
+    }
+  }
+
+  // Render preview table columns based on report type
+  function renderPreviewHeader() {
+    if (reportType === 'orders') {
+      return (
+        <TableRow>
+          <TableHead className="w-8">#</TableHead>
+          <TableHead>Order ID</TableHead>
+          <TableHead>SKU</TableHead>
+          <TableHead>Status</TableHead>
+          <TableHead>Order Date</TableHead>
+          <TableHead>Dispatch Date</TableHead>
+          <TableHead>Flag</TableHead>
+        </TableRow>
+      )
+    }
+    if (reportType === 'returns') {
+      return (
+        <TableRow>
+          <TableHead className="w-8">#</TableHead>
+          <TableHead>Order ID</TableHead>
+          <TableHead>SKU</TableHead>
+          <TableHead>Return Type</TableHead>
+          <TableHead>Return Date</TableHead>
+          <TableHead>Reason</TableHead>
+          <TableHead>Flag</TableHead>
+        </TableRow>
+      )
+    }
+    // P&L (default)
+    return (
+      <TableRow>
+        <TableHead className="w-8">#</TableHead>
+        <TableHead>Order Item ID</TableHead>
+        <TableHead>SKU</TableHead>
+        <TableHead>Status</TableHead>
+        <TableHead className="text-right">Revenue</TableHead>
+        <TableHead className="text-right">Fees</TableHead>
+        <TableHead>Flag</TableHead>
+      </TableRow>
+    )
+  }
+
+  function renderPreviewRow(row: ParsedRow, idx: number, isDup: boolean, hasErr: boolean) {
+    const flagCell = (
+      <TableCell>
+        {hasErr ? (
+          <Badge variant="outline" className="text-red-700 border-red-400 bg-red-50 text-xs">
+            {getRowError(row)}
+          </Badge>
+        ) : isDup ? (
+          <Badge variant="outline" className="text-yellow-700 border-yellow-400 bg-yellow-50 text-xs">
+            Duplicate
+          </Badge>
+        ) : (
+          <CheckCircle2 className="h-4 w-4 text-green-600" />
+        )}
+      </TableCell>
+    )
+
+    if (reportType === 'orders') {
+      const r = row as ParsedOrderRow
+      return (
+        <TableRow key={idx} className={hasErr ? 'bg-red-50' : isDup ? 'bg-yellow-50' : ''}>
+          <TableCell className="text-xs text-muted-foreground">{idx + 1}</TableCell>
+          <TableCell className="text-xs font-mono">{r.platformOrderId || '—'}</TableCell>
+          <TableCell className="text-sm max-w-[200px] truncate">{r.skuName || '—'}</TableCell>
+          <TableCell className="text-sm">{r.orderStatus || '—'}</TableCell>
+          <TableCell className="text-sm">{r.orderDate || '—'}</TableCell>
+          <TableCell className="text-sm">{r.dispatchDate || '—'}</TableCell>
+          {flagCell}
+        </TableRow>
+      )
+    }
+
+    if (reportType === 'returns') {
+      const r = row as ParsedReturnRow
+      return (
+        <TableRow key={idx} className={hasErr ? 'bg-red-50' : isDup ? 'bg-yellow-50' : ''}>
+          <TableCell className="text-xs text-muted-foreground">{idx + 1}</TableCell>
+          <TableCell className="text-xs font-mono">{r.platformOrderId || '—'}</TableCell>
+          <TableCell className="text-sm max-w-[200px] truncate">{r.skuName || '—'}</TableCell>
+          <TableCell className="text-sm uppercase">{r.returnType || '—'}</TableCell>
+          <TableCell className="text-sm">{r.returnCompleteDate || r.returnRequestDate || '—'}</TableCell>
+          <TableCell className="text-sm max-w-[200px] truncate">{r.returnReason || '—'}</TableCell>
+          {flagCell}
+        </TableRow>
+      )
+    }
+
+    // P&L
+    const r = row as ParsedPnlRow
+    return (
+      <TableRow key={idx} className={hasErr ? 'bg-red-50' : isDup ? 'bg-yellow-50' : ''}>
+        <TableCell className="text-xs text-muted-foreground">{idx + 1}</TableCell>
+        <TableCell className="text-xs font-mono">{r.orderItemId || '—'}</TableCell>
+        <TableCell className="text-sm max-w-[200px] truncate">{r.skuName || '—'}</TableCell>
+        <TableCell className="text-sm">{r.orderStatus || '—'}</TableCell>
+        <TableCell className="text-sm text-right tabular-nums">
+          {r.accountedNetSales ? fmt(r.accountedNetSales) : '—'}
+        </TableCell>
+        <TableCell className="text-sm text-right tabular-nums">
+          {r.totalExpenses ? fmt(Math.abs(r.totalExpenses)) : '—'}
+        </TableCell>
+        {flagCell}
+      </TableRow>
+    )
+  }
+
   return (
     <Dialog open={open} onOpenChange={(o) => { if (!o) reset(); onOpenChange(o) }}>
       <DialogContent className="max-w-4xl max-h-[90vh] overflow-hidden flex flex-col">
         <DialogHeader>
           <DialogTitle>
-            {step === 'select-account' && 'Import Flipkart P&L'}
-            {step === 'upload' && 'Upload P&L File'}
-            {step === 'parsing' && 'Parsing...'}
-            {step === 'preview' && `Preview — ${rows.length} rows`}
-            {step === 'importing' && 'Importing...'}
-            {step === 'results' && 'Import Complete'}
+            {getDialogTitle(step, reportType, rows.length)}
           </DialogTitle>
         </DialogHeader>
+
+        {/* -- SELECT TYPE -- */}
+        {step === 'select-type' && (
+          <div className="space-y-3 flex-1">
+            <p className="text-sm text-muted-foreground">
+              Select the type of Flipkart report to import.
+            </p>
+            <div className="grid grid-cols-2 gap-3">
+              {REPORT_TYPES.map((rt) => {
+                const Icon = rt.icon
+                return (
+                  <button
+                    key={rt.type}
+                    disabled={rt.disabled}
+                    onClick={() => handleSelectType(rt.type)}
+                    className={`relative rounded-lg border p-4 text-left transition-colors ${
+                      rt.disabled
+                        ? 'opacity-50 cursor-not-allowed bg-muted/30'
+                        : 'hover:border-primary hover:bg-primary/5 cursor-pointer'
+                    }`}
+                  >
+                    {rt.disabled && (
+                      <Badge variant="secondary" className="absolute top-2 right-2 text-[10px]">
+                        Coming soon
+                      </Badge>
+                    )}
+                    <Icon className="h-5 w-5 mb-2 text-muted-foreground" />
+                    <div className="font-medium text-sm">{rt.label}</div>
+                    <div className="text-xs text-muted-foreground mt-1">{rt.description}</div>
+                  </button>
+                )
+              })}
+            </div>
+          </div>
+        )}
 
         {/* -- SELECT ACCOUNT -- */}
         {step === 'select-account' && (
           <div className="space-y-4 flex-1">
             <p className="text-sm text-muted-foreground">
-              Select the Flipkart marketplace account this P&L report belongs to.
+              Select the Flipkart marketplace account this {getUploadDescription(reportType)} report belongs to.
             </p>
             {loadingAccounts ? (
               <div className="flex items-center gap-2 text-muted-foreground">
@@ -228,10 +462,15 @@ export function PnlImportDialog({ open, onOpenChange, onImportComplete }: Props)
         {step === 'upload' && (
           <div className="space-y-4 flex-1">
             <p className="text-sm text-muted-foreground">
-              Upload the Flipkart P&L XLSX file for{' '}
-              <span className="font-medium text-foreground">
-                {accounts.find(a => a.id === selectedAccountId)?.account_name}
-              </span>
+              Upload the Flipkart {getUploadDescription(reportType)} XLSX file
+              {needsAccountStep(reportType) && selectedAccountId && (
+                <>
+                  {' '}for{' '}
+                  <span className="font-medium text-foreground">
+                    {accounts.find(a => a.id === selectedAccountId)?.account_name}
+                  </span>
+                </>
+              )}
             </p>
             {parseError && (
               <div className="rounded-md border border-red-200 bg-red-50 p-3 text-sm text-red-700">
@@ -247,7 +486,7 @@ export function PnlImportDialog({ open, onOpenChange, onImportComplete }: Props)
               <input {...getInputProps()} />
               <Upload className="h-8 w-8 mx-auto mb-3 text-muted-foreground" />
               <p className="text-sm font-medium">
-                {isDragActive ? 'Drop your XLSX here' : 'Drag & drop your P&L XLSX or click to browse'}
+                {isDragActive ? 'Drop your XLSX here' : `Drag & drop your ${getUploadDescription(reportType)} XLSX or click to browse`}
               </p>
               <p className="text-xs text-muted-foreground mt-1">
                 Accepts .xlsx files exported from Flipkart Seller Hub
@@ -288,53 +527,13 @@ export function PnlImportDialog({ open, onOpenChange, onImportComplete }: Props)
             <div className="max-h-[55vh] overflow-y-auto border rounded-md">
               <Table>
                 <TableHeader>
-                  <TableRow>
-                    <TableHead className="w-8">#</TableHead>
-                    <TableHead>Order Item ID</TableHead>
-                    <TableHead>SKU</TableHead>
-                    <TableHead>Status</TableHead>
-                    <TableHead className="text-right">Revenue</TableHead>
-                    <TableHead className="text-right">Fees</TableHead>
-                    <TableHead>Flag</TableHead>
-                  </TableRow>
+                  {renderPreviewHeader()}
                 </TableHeader>
                 <TableBody>
                   {rows.slice(0, 200).map((row, idx) => {
                     const isDup = duplicateIndices.has(idx)
                     const hasErr = errorIndices.has(idx)
-                    return (
-                      <TableRow
-                        key={idx}
-                        className={
-                          hasErr ? 'bg-red-50' :
-                          isDup ? 'bg-yellow-50' : ''
-                        }
-                      >
-                        <TableCell className="text-xs text-muted-foreground">{idx + 1}</TableCell>
-                        <TableCell className="text-xs font-mono">{row.orderItemId || '—'}</TableCell>
-                        <TableCell className="text-sm max-w-[200px] truncate">{row.skuName || '—'}</TableCell>
-                        <TableCell className="text-sm">{row.orderStatus || '—'}</TableCell>
-                        <TableCell className="text-sm text-right tabular-nums">
-                          {row.accountedNetSales ? fmt(row.accountedNetSales) : '—'}
-                        </TableCell>
-                        <TableCell className="text-sm text-right tabular-nums">
-                          {row.totalExpenses ? fmt(Math.abs(row.totalExpenses)) : '—'}
-                        </TableCell>
-                        <TableCell>
-                          {hasErr ? (
-                            <Badge variant="outline" className="text-red-700 border-red-400 bg-red-50 text-xs">
-                              {row.error}
-                            </Badge>
-                          ) : isDup ? (
-                            <Badge variant="outline" className="text-yellow-700 border-yellow-400 bg-yellow-50 text-xs">
-                              Duplicate
-                            </Badge>
-                          ) : (
-                            <CheckCircle2 className="h-4 w-4 text-green-600" />
-                          )}
-                        </TableCell>
-                      </TableRow>
-                    )
+                    return renderPreviewRow(row, idx, isDup, hasErr)
                   })}
                 </TableBody>
               </Table>
@@ -391,16 +590,21 @@ export function PnlImportDialog({ open, onOpenChange, onImportComplete }: Props)
         )}
 
         <DialogFooter>
+          {step === 'select-type' && (
+            <Button variant="outline" onClick={() => onOpenChange(false)}>Cancel</Button>
+          )}
           {step === 'select-account' && (
             <>
-              <Button variant="outline" onClick={() => onOpenChange(false)}>Cancel</Button>
+              <Button variant="outline" onClick={() => setStep('select-type')}>
+                &larr; Back
+              </Button>
               <Button onClick={() => setStep('upload')} disabled={!selectedAccountId}>
                 Next &rarr;
               </Button>
             </>
           )}
           {step === 'upload' && (
-            <Button variant="outline" onClick={() => setStep('select-account')}>
+            <Button variant="outline" onClick={handleBackFromUpload}>
               &larr; Back
             </Button>
           )}

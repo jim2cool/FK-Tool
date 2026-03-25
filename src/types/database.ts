@@ -147,6 +147,18 @@ export interface Order {
   rto_units: number
   rvp_units: number
   cancelled_units: number
+  dispatch_date: string | null
+  delivery_date: string | null
+  cancellation_date: string | null
+  cancellation_reason: string | null
+  return_request_date: string | null
+  return_complete_date: string | null
+  return_type: string | null         // 'rto' | 'rvp'
+  return_status: string | null
+  return_reason: string | null
+  return_sub_reason: string | null
+  settlement_date: string | null
+  neft_id: string | null
   created_at: string
 }
 
