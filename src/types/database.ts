@@ -272,7 +272,16 @@ export interface PnlAnomalyRule {
   name: string
   description: string | null
   enabled: boolean
+  threshold_value: number | null
   created_at: string
+}
+
+export interface DismissedInsight {
+  id: string
+  tenant_id: string
+  insight_key: string
+  dismissed_by: string | null
+  dismissed_at: string
 }
 
 export interface Import {

@@ -85,7 +85,21 @@ function sortValue(row: PnlBreakdown, key: SortKey): number | string {
   }
 }
 
-export function PnlProductTable({ rows }: { rows: PnlBreakdown[] }) {
+type GroupBy = 'product' | 'channel' | 'account'
+
+const GROUP_LABELS: Record<GroupBy, string> = {
+  product: 'Product Name',
+  channel: 'Channel',
+  account: 'Account',
+}
+
+export function PnlProductTable({ productRows, channelRows, accountRows }: {
+  productRows: PnlBreakdown[]
+  channelRows: PnlBreakdown[]
+  accountRows: PnlBreakdown[]
+}) {
+  const [groupBy, setGroupBy] = useState<GroupBy>('product')
+  const rows = groupBy === 'product' ? productRows : groupBy === 'channel' ? channelRows : accountRows
   const [sortKey, setSortKey] = useState<SortKey>('revenue')
   const [sortDir, setSortDir] = useState<'asc' | 'desc'>('desc')
   const [expandedRows, setExpandedRows] = useState<Set<string>>(new Set())
@@ -118,13 +132,35 @@ export function PnlProductTable({ rows }: { rows: PnlBreakdown[] }) {
     return sortDir === 'asc' ? diff : -diff
   })
 
+  // Override first column label based on groupBy
+  const displayColumns = COLUMNS.map((col, i) =>
+    i === 0 ? { ...col, label: GROUP_LABELS[groupBy] } : col
+  ).filter(col => {
+    // Hide Exp. Profit/Dispatch for non-product groupings
+    if (col.key === 'expected_profit_per_dispatch' && groupBy !== 'product') return false
+    return true
+  })
+
   return (
+    <div className="space-y-3">
+      <div className="flex items-center gap-2">
+        <label className="text-xs text-muted-foreground">Group by:</label>
+        <select
+          value={groupBy}
+          onChange={e => { setGroupBy(e.target.value as GroupBy); setExpandedRows(new Set()) }}
+          className="rounded-md border border-input bg-background px-2 py-1 text-sm"
+        >
+          <option value="product">Product</option>
+          <option value="channel">Channel</option>
+          <option value="account">Account</option>
+        </select>
+      </div>
     <div className="overflow-x-auto rounded-lg border">
       <table className="w-full text-sm">
         <thead>
           <tr className="border-b text-left text-muted-foreground">
             <th className="w-8 px-2 py-2" />
-            {COLUMNS.map(col => (
+            {displayColumns.map(col => (
               <th
                 key={col.key}
                 className="px-3 py-2 font-medium cursor-pointer hover:text-foreground select-none whitespace-nowrap"
@@ -297,6 +333,7 @@ export function PnlProductTable({ rows }: { rows: PnlBreakdown[] }) {
           )}
         </tbody>
       </table>
+    </div>
     </div>
   )
 }
