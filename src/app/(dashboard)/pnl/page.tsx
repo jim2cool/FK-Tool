@@ -8,6 +8,8 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { PnlProductTable } from '@/components/pnl/PnlProductTable'
 import { PnlChannelTable } from '@/components/pnl/PnlChannelTable'
 import { PnlAccountTable } from '@/components/pnl/PnlAccountTable'
+import { PnlImportDialog } from '@/components/pnl/PnlImportDialog'
+import { AnomalyRulesPanel } from '@/components/pnl/AnomalyRulesPanel'
 import type { PnlBreakdown, PnlSummary } from '@/lib/pnl/calculate'
 
 function fmt(n: number) {
@@ -78,7 +80,7 @@ export default function PnlPage() {
 
   // Fetch marketplace accounts on mount
   useEffect(() => {
-    fetch('/api/catalog/marketplace-accounts')
+    fetch('/api/marketplace-accounts')
       .then(r => r.ok ? r.json() : [])
       .then(setAccounts)
       .catch(() => {})
@@ -279,29 +281,21 @@ export default function PnlPage() {
         </Tabs>
       )}
 
-      {/* Placeholder dialogs — will be implemented as separate components */}
-      {showImport && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50" onClick={() => setShowImport(false)}>
-          <div className="rounded-lg bg-background p-6 shadow-lg max-w-md w-full" onClick={e => e.stopPropagation()}>
-            <h2 className="text-lg font-semibold mb-2">Import P&L Report</h2>
-            <p className="text-sm text-muted-foreground mb-4">
-              P&L import dialog will be implemented as a separate component (PnlImportDialog).
-            </p>
-            <Button variant="outline" onClick={() => setShowImport(false)}>Close</Button>
-          </div>
-        </div>
-      )}
-      {showRules && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50" onClick={() => setShowRules(false)}>
-          <div className="rounded-lg bg-background p-6 shadow-lg max-w-md w-full" onClick={e => e.stopPropagation()}>
-            <h2 className="text-lg font-semibold mb-2">Anomaly Rules</h2>
-            <p className="text-sm text-muted-foreground mb-4">
-              Anomaly rules panel will be implemented as a separate component (AnomalyRulesPanel).
-            </p>
-            <Button variant="outline" onClick={() => setShowRules(false)}>Close</Button>
-          </div>
-        </div>
-      )}
+      <PnlImportDialog
+        open={showImport}
+        onOpenChange={setShowImport}
+        onImportComplete={() => {
+          setShowImport(false)
+          // Refetch data
+          Promise.all([fetchPnl('product'), fetchPnl('channel'), fetchPnl('account')])
+            .then(([prod, chan, acct]) => {
+              setProductData(prod)
+              setChannelData(chan)
+              setAccountData(acct)
+            })
+        }}
+      />
+      <AnomalyRulesPanel open={showRules} onOpenChange={setShowRules} />
     </div>
   )
 }
