@@ -10,6 +10,8 @@ export interface WaterfallData {
   tcs_tds: number
   benefits: number
   true_profit: number
+  overheads: number
+  operating_profit: number
 }
 
 export interface MomDeltas {
@@ -19,6 +21,7 @@ export interface MomDeltas {
   logistics_pct: number | null
   true_profit_pct: number | null
   margin_delta: number | null
+  operating_profit_pct: number | null
 }
 
 export interface TopBottomSku {
@@ -54,9 +57,12 @@ export interface PnlDashboardResponse {
     }>
   }
   insights: import('@/lib/pnl/insights').PnlInsight[]
+  overheads_total: number
+  operating_profit: number
+  break_even_pct: number
 }
 
-export function computeWaterfall(rows: PnlBreakdown[]): WaterfallData {
+export function computeWaterfall(rows: PnlBreakdown[], overheads: number = 0): WaterfallData {
   let platformFees = 0
   let sellerOffers = 0
   let logistics = 0
@@ -78,6 +84,7 @@ export function computeWaterfall(rows: PnlBreakdown[]): WaterfallData {
   }
 
   const trueProfit = revenue - platformFees - sellerOffers - logistics - cogs - gst - tcsTds + benefits
+  const operatingProfit = trueProfit - overheads
 
   return {
     revenue: Math.round(revenue * 100) / 100,
@@ -89,6 +96,8 @@ export function computeWaterfall(rows: PnlBreakdown[]): WaterfallData {
     tcs_tds: Math.round(tcsTds * 100) / 100,
     benefits: Math.round(benefits * 100) / 100,
     true_profit: Math.round(trueProfit * 100) / 100,
+    overheads: Math.round(overheads * 100) / 100,
+    operating_profit: Math.round(operatingProfit * 100) / 100,
   }
 }
 
@@ -97,10 +106,15 @@ function pctChange(current: number, prior: number): number | null {
   return Math.round(((current - prior) / Math.abs(prior)) * 1000) / 10
 }
 
-export function computeMomDeltas(current: PnlSummary, prior: PnlSummary | null): MomDeltas {
+export function computeMomDeltas(
+  current: PnlSummary, prior: PnlSummary | null,
+  currentOverheads: number = 0, priorOverheads: number = 0,
+): MomDeltas {
   if (!prior) {
-    return { revenue_pct: null, cogs_pct: null, platform_fees_pct: null, logistics_pct: null, true_profit_pct: null, margin_delta: null }
+    return { revenue_pct: null, cogs_pct: null, platform_fees_pct: null, logistics_pct: null, true_profit_pct: null, margin_delta: null, operating_profit_pct: null }
   }
+  const currentOp = current.total_true_profit - currentOverheads
+  const priorOp = prior.total_true_profit - priorOverheads
   return {
     revenue_pct: pctChange(current.total_revenue, prior.total_revenue),
     cogs_pct: pctChange(current.total_cogs, prior.total_cogs),
@@ -108,6 +122,7 @@ export function computeMomDeltas(current: PnlSummary, prior: PnlSummary | null):
     logistics_pct: pctChange(Math.abs(current.total_logistics), Math.abs(prior.total_logistics)),
     true_profit_pct: pctChange(current.total_true_profit, prior.total_true_profit),
     margin_delta: Math.round((current.overall_margin_pct - prior.overall_margin_pct) * 10) / 10,
+    operating_profit_pct: pctChange(currentOp, priorOp),
   }
 }
 

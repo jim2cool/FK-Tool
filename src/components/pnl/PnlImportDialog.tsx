@@ -12,13 +12,14 @@ import { createClient } from '@/lib/supabase/client'
 import { parsePnlXlsx, type ParsedPnlRow } from '@/lib/importers/pnl-xlsx-parser'
 import { parseOrdersReport, type ParsedOrderRow } from '@/lib/importers/orders-report-parser'
 import { parseReturnsReport, type ParsedReturnRow } from '@/lib/importers/returns-report-parser'
+import { parseSettlementXlsx, type ParsedSettlementRow } from '@/lib/importers/settlement-report-parser'
 import { toast } from 'sonner'
 
 type ReportType = 'orders' | 'returns' | 'pnl' | 'settlement'
 type Step = 'select-type' | 'select-account' | 'upload' | 'parsing' | 'preview' | 'importing' | 'results'
 
 // Union type for all parsed row types
-type ParsedRow = ParsedPnlRow | ParsedOrderRow | ParsedReturnRow
+type ParsedRow = ParsedPnlRow | ParsedOrderRow | ParsedReturnRow | ParsedSettlementRow
 
 interface Props {
   open: boolean
@@ -51,11 +52,12 @@ const REPORT_TYPES: Array<{
   { type: 'orders', label: 'Orders Report', description: 'Import order lifecycle data (dispatch, delivery, return dates)', icon: Package },
   { type: 'returns', label: 'Returns Report', description: 'Import return details (RTO/RVP type, reasons)', icon: RotateCcw },
   { type: 'pnl', label: 'P&L Report', description: 'Import Flipkart P&L with fee breakdown', icon: DollarSign },
-  { type: 'settlement', label: 'Settlement Report', description: 'Import settlement/payment details', icon: Landmark, disabled: true },
+  { type: 'settlement', label: 'Settlement Report', description: 'Import settlement/payment details', icon: Landmark },
 ]
 
 function needsAccountStep(reportType: ReportType): boolean {
   return reportType === 'pnl' || reportType === 'orders'
+  // settlement and returns do NOT need account step
 }
 
 function fmt(n: number) {
@@ -84,6 +86,7 @@ function getUploadDescription(reportType: ReportType): string {
     case 'orders': return 'Orders Report'
     case 'returns': return 'Returns Report'
     case 'pnl': return 'P&L'
+    case 'settlement': return 'Settlement'
     default: return 'Report'
   }
 }
@@ -93,6 +96,7 @@ function getRowIdentifier(row: ParsedRow, reportType: ReportType): string {
   if (reportType === 'pnl') return (row as ParsedPnlRow).orderItemId
   if (reportType === 'orders') return (row as ParsedOrderRow).orderItemId
   if (reportType === 'returns') return (row as ParsedReturnRow).orderItemId
+  if (reportType === 'settlement') return (row as ParsedSettlementRow).orderItemId
   return ''
 }
 
@@ -171,6 +175,8 @@ export function PnlImportDialog({ open, onOpenChange, onImportComplete }: Props)
         parsed = await parseOrdersReport(buffer)
       } else if (reportType === 'returns') {
         parsed = await parseReturnsReport(buffer)
+      } else if (reportType === 'settlement') {
+        parsed = await parseSettlementXlsx(buffer)
       } else {
         parsed = await parsePnlXlsx(buffer)
       }
@@ -232,6 +238,9 @@ export function PnlImportDialog({ open, onOpenChange, onImportComplete }: Props)
         body = { rows, marketplaceAccountId: selectedAccountId, skipRowIndices: skipIndices }
       } else if (reportType === 'returns') {
         endpoint = '/api/pnl/import-returns'
+        body = { rows, skipRowIndices: skipIndices }
+      } else if (reportType === 'settlement') {
+        endpoint = '/api/pnl/import-settlement'
         body = { rows, skipRowIndices: skipIndices }
       } else {
         endpoint = '/api/pnl/import'
@@ -312,6 +321,18 @@ export function PnlImportDialog({ open, onOpenChange, onImportComplete }: Props)
         </TableRow>
       )
     }
+    if (reportType === 'settlement') {
+      return (
+        <TableRow>
+          <TableHead className="w-8">#</TableHead>
+          <TableHead>NEFT ID</TableHead>
+          <TableHead>Order ID</TableHead>
+          <TableHead>Payment Date</TableHead>
+          <TableHead className="text-right">Bank Value</TableHead>
+          <TableHead>Flag</TableHead>
+        </TableRow>
+      )
+    }
     // P&L (default)
     return (
       <TableRow>
@@ -368,6 +389,22 @@ export function PnlImportDialog({ open, onOpenChange, onImportComplete }: Props)
           <TableCell className="text-sm uppercase">{r.returnType || '—'}</TableCell>
           <TableCell className="text-sm">{r.returnCompleteDate || r.returnRequestDate || '—'}</TableCell>
           <TableCell className="text-sm max-w-[200px] truncate">{r.returnReason || '—'}</TableCell>
+          {flagCell}
+        </TableRow>
+      )
+    }
+
+    if (reportType === 'settlement') {
+      const r = row as ParsedSettlementRow
+      return (
+        <TableRow key={idx} className={hasErr ? 'bg-red-50' : isDup ? 'bg-yellow-50' : ''}>
+          <TableCell className="text-xs text-muted-foreground">{idx + 1}</TableCell>
+          <TableCell className="text-xs font-mono">{r.neftId || '—'}</TableCell>
+          <TableCell className="text-xs font-mono">{r.platformOrderId || '—'}</TableCell>
+          <TableCell className="text-sm">{r.paymentDate || '—'}</TableCell>
+          <TableCell className="text-sm text-right tabular-nums">
+            {r.bankSettlementValue ? fmt(r.bankSettlementValue) : '—'}
+          </TableCell>
           {flagCell}
         </TableRow>
       )

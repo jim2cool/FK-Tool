@@ -9,6 +9,9 @@ interface Props {
   topLosing: TopBottomSku[]
   highReturn: TopBottomSku[]
   onSwitchTab: (tab: string) => void
+  overheadsTotal: number
+  operatingProfit: number
+  breakEvenPct: number
 }
 
 function fmt(n: number) {
@@ -25,6 +28,9 @@ export default function PnlOverviewTab({
   topLosing,
   highReturn,
   onSwitchTab,
+  overheadsTotal,
+  operatingProfit,
+  breakEvenPct,
 }: Props) {
   const allEmpty =
     topProfitable.length === 0 &&
@@ -40,6 +46,39 @@ export default function PnlOverviewTab({
         </h3>
         <WaterfallChart data={waterfall} />
       </div>
+
+      {/* Break-even indicator — only show when overheads are configured */}
+      {overheadsTotal > 0 && (
+        <div className="rounded-lg border bg-card p-4">
+          {operatingProfit >= 0 ? (
+            <div className="flex items-center gap-2">
+              <span className="text-sm font-medium text-green-700">
+                Operating Profit: {fmt(operatingProfit)}
+              </span>
+              <span className="text-xs text-muted-foreground">
+                ({breakEvenPct.toFixed(1)}% of overheads covered)
+              </span>
+            </div>
+          ) : (
+            <div className="space-y-2">
+              <div className="flex items-center gap-2">
+                <span className="text-sm font-medium text-red-700">
+                  {fmt(Math.abs(operatingProfit))} short of break-even
+                </span>
+                <span className="text-xs text-muted-foreground">
+                  ({breakEvenPct.toFixed(1)}% of overheads covered)
+                </span>
+              </div>
+              <div className="h-2 w-full rounded-full bg-amber-100">
+                <div
+                  className="h-2 rounded-full bg-amber-500 transition-all"
+                  style={{ width: `${Math.min(Math.max(breakEvenPct, 0), 100)}%` }}
+                />
+              </div>
+            </div>
+          )}
+        </div>
+      )}
 
       {/* Insight Cards */}
       {allEmpty ? (

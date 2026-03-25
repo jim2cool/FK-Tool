@@ -3,6 +3,9 @@ import { createClient } from '@/lib/supabase/server'
 import { calculatePnl } from '@/lib/pnl/calculate'
 import { computeWaterfall, computeMomDeltas, deriveTopBottom } from '@/lib/pnl/waterfall'
 import { generateInsights } from '@/lib/pnl/insights'
+import type { RecoveryData } from '@/lib/pnl/insights'
+import { computeRecoveryMetrics } from '@/lib/pnl/recovery'
+import { calculateCogsBatch } from '@/lib/cogs/calculate'
 import { NextRequest, NextResponse } from 'next/server'
 
 export async function GET(request: NextRequest) {
@@ -41,12 +44,31 @@ export async function GET(request: NextRequest) {
       // No prior data — deltas will be null
     }
 
-    // 3. Waterfall + MoM + Top/Bottom
-    const waterfall = computeWaterfall(current.rows)
-    const mom_deltas = computeMomDeltas(current.summary, priorSummary)
+    // 3. Fetch overheads for current and prior months
+    const monthStr = from.substring(0, 7) // "YYYY-MM"
+    const { data: overheadRows } = await supabase
+      .from('monthly_overheads')
+      .select('amount')
+      .eq('tenant_id', tenantId)
+      .eq('month', monthStr)
+
+    const overheadsTotal = (overheadRows ?? []).reduce((s, r) => s + Number(r.amount), 0)
+
+    const priorMonthStr = priorFrom.substring(0, 7)
+    const { data: priorOverheadRows } = await supabase
+      .from('monthly_overheads')
+      .select('amount')
+      .eq('tenant_id', tenantId)
+      .eq('month', priorMonthStr)
+
+    const priorOverheadsTotal = (priorOverheadRows ?? []).reduce((s, r) => s + Number(r.amount), 0)
+
+    // 4. Waterfall + MoM + Top/Bottom
+    const waterfall = computeWaterfall(current.rows, overheadsTotal)
+    const mom_deltas = computeMomDeltas(current.summary, priorSummary, overheadsTotal, priorOverheadsTotal)
     const { top_profitable, top_losing, high_return } = deriveTopBottom(current.rows)
 
-    // 4. Cash flow — per-order query
+    // 5. Cash flow — per-order query
     let cashflowQuery = supabase
       .from('orders')
       .select(`
@@ -131,7 +153,7 @@ export async function GET(request: NextRequest) {
       ? Math.round((totalSettled / (totalSettled + totalPending)) * 1000) / 10
       : 0
 
-    // 5. Insights
+    // 6. Insights
     const { data: rules } = await supabase
       .from('pnl_anomaly_rules')
       .select('rule_key, threshold_value')
@@ -152,7 +174,44 @@ export async function GET(request: NextRequest) {
       .eq('tenant_id', tenantId)
 
     const dismissedKeys = new Set((dismissed ?? []).map(d => d.insight_key))
-    const insights = generateInsights(current.rows, dismissedKeys, thresholds)
+
+    // 7. Recovery metrics for extended insights
+    const productSkuIds = current.rows
+      .filter(r => r.group_key !== 'unmapped')
+      .map(r => r.group_key)
+
+    let recoveryMap: Map<string, RecoveryData> | undefined
+    try {
+      if (productSkuIds.length > 0) {
+        const cogsMap = await calculateCogsBatch(productSkuIds)
+        const recoveryMetrics = await computeRecoveryMetrics(tenantId, productSkuIds, from, to, cogsMap)
+        recoveryMap = new Map<string, RecoveryData>()
+        for (const [skuId, metrics] of recoveryMetrics) {
+          recoveryMap.set(skuId, {
+            recovery_rounds: metrics.recovery_rounds,
+            cash_cycle_days: metrics.cash_cycle_days,
+            rto_rate: metrics.rto_rate,
+            rvp_rate: metrics.rvp_rate,
+            top_return_reasons: metrics.top_return_reasons,
+          })
+        }
+      }
+    } catch (err) {
+      console.warn('[pnl/dashboard] Recovery metrics failed, continuing without:', err)
+    }
+
+    const contributionMargin = current.summary.total_true_profit
+
+    const insights = generateInsights(current.rows, dismissedKeys, thresholds, {
+      recoveryMap,
+      overheadsTotal,
+      contributionMargin,
+    })
+
+    const operatingProfit = waterfall.true_profit - overheadsTotal
+    const breakEvenPct = overheadsTotal > 0
+      ? Math.round((waterfall.true_profit / overheadsTotal) * 1000) / 10
+      : 0
 
     return NextResponse.json({
       waterfall,
@@ -168,6 +227,9 @@ export async function GET(request: NextRequest) {
         pending_orders: pendingOrders,
       },
       insights,
+      overheads_total: Math.round(overheadsTotal * 100) / 100,
+      operating_profit: Math.round(operatingProfit * 100) / 100,
+      break_even_pct: breakEvenPct,
     })
   } catch (e: unknown) {
     console.error('[pnl/dashboard]', e)

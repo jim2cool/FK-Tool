@@ -4,6 +4,7 @@ import { useState } from 'react'
 import { ChevronDown, ChevronRight } from 'lucide-react'
 import { InfoTooltip } from '@/components/ui/info-tooltip'
 import type { PnlBreakdown } from '@/lib/pnl/calculate'
+import type { RecoveryMetrics } from '@/lib/pnl/recovery'
 
 function fmt(n: number) {
   return new Intl.NumberFormat('en-IN', { style: 'currency', currency: 'INR', maximumFractionDigits: 0 }).format(n)
@@ -25,8 +26,10 @@ type SortKey =
   | 'true_profit'
   | 'margin_pct'
   | 'expected_profit_per_dispatch'
+  | 'recovery_rounds'
+  | 'cash_cycle_days'
 
-const COLUMNS: { key: SortKey; label: string; tooltip?: string }[] = [
+const COLUMNS: { key: SortKey; label: string; tooltip?: string; productOnly?: boolean }[] = [
   { key: 'group_name', label: 'Product Name' },
   { key: 'gross_orders', label: 'Gross Orders' },
   { key: 'return_rate', label: 'Return Rate' },
@@ -42,6 +45,21 @@ const COLUMNS: { key: SortKey; label: string; tooltip?: string }[] = [
     label: 'Exp. Profit/Dispatch',
     tooltip:
       'Expected profit per dispatched unit, adjusted for return rate. Accounts for the cost of returns on each dispatch.',
+    productOnly: true,
+  },
+  {
+    key: 'recovery_rounds',
+    label: 'Recovery Rounds',
+    tooltip:
+      'All-in cost per unit divided by net settlement per unit. Lower is better — indicates how many units you need to sell to recover your investment.',
+    productOnly: true,
+  },
+  {
+    key: 'cash_cycle_days',
+    label: 'Cash Cycle',
+    tooltip:
+      'Average days from order to settlement, adjusted for return rate. Shows how long your capital is locked up.',
+    productOnly: true,
   },
 ]
 
@@ -68,7 +86,33 @@ function marginColor(m: number | null): string {
   return 'text-red-600'
 }
 
-function sortValue(row: PnlBreakdown, key: SortKey): number | string {
+function recoveryRoundsColor(rr: number): string {
+  if (rr < 1) return 'text-green-600'
+  if (rr <= 2) return 'text-yellow-600'
+  if (rr <= 3) return 'text-orange-500'
+  return 'text-red-600'
+}
+
+const VERDICT_STYLES: Record<string, { bg: string; text: string; label: string }> = {
+  star:      { bg: 'bg-green-100',  text: 'text-green-800',  label: 'Star' },
+  healthy:   { bg: 'bg-green-50',   text: 'text-green-700',  label: 'Healthy' },
+  watch:     { bg: 'bg-yellow-100', text: 'text-yellow-800', label: 'Watch' },
+  reduce:    { bg: 'bg-orange-100', text: 'text-orange-800', label: 'Reduce' },
+  stop:      { bg: 'bg-red-100',    text: 'text-red-800',    label: 'Stop' },
+  cash_trap: { bg: 'bg-purple-100', text: 'text-purple-800', label: 'Cash Trap' },
+}
+
+function VerdictBadge({ verdict }: { verdict: string }) {
+  const style = VERDICT_STYLES[verdict]
+  if (!style) return null
+  return (
+    <span className={`inline-flex items-center rounded-full px-2 py-0.5 text-[10px] font-semibold ${style.bg} ${style.text}`}>
+      {style.label}
+    </span>
+  )
+}
+
+function sortValue(row: PnlBreakdown, key: SortKey, recoveryMap?: Map<string, RecoveryMetrics>): number | string {
   switch (key) {
     case 'group_name':
       return row.group_name.toLowerCase()
@@ -80,6 +124,14 @@ function sortValue(row: PnlBreakdown, key: SortKey): number | string {
       return row.margin_pct ?? -Infinity
     case 'expected_profit_per_dispatch':
       return row.expected_profit_per_dispatch ?? -Infinity
+    case 'recovery_rounds': {
+      const rm = recoveryMap?.get(row.group_key)
+      return rm?.recovery_rounds ?? -Infinity
+    }
+    case 'cash_cycle_days': {
+      const rm = recoveryMap?.get(row.group_key)
+      return rm?.cash_cycle_days ?? -Infinity
+    }
     default:
       return row[key] as number
   }
@@ -93,16 +145,19 @@ const GROUP_LABELS: Record<GroupBy, string> = {
   account: 'Account',
 }
 
-export function PnlProductTable({ productRows, channelRows, accountRows }: {
+export function PnlProductTable({ productRows, channelRows, accountRows, recoveryMap }: {
   productRows: PnlBreakdown[]
   channelRows: PnlBreakdown[]
   accountRows: PnlBreakdown[]
+  recoveryMap?: Map<string, RecoveryMetrics>
 }) {
   const [groupBy, setGroupBy] = useState<GroupBy>('product')
   const rows = groupBy === 'product' ? productRows : groupBy === 'channel' ? channelRows : accountRows
   const [sortKey, setSortKey] = useState<SortKey>('revenue')
   const [sortDir, setSortDir] = useState<'asc' | 'desc'>('desc')
   const [expandedRows, setExpandedRows] = useState<Set<string>>(new Set())
+
+  const isProduct = groupBy === 'product'
 
   function handleSort(key: SortKey) {
     if (sortKey === key) {
@@ -123,8 +178,8 @@ export function PnlProductTable({ productRows, channelRows, accountRows }: {
   }
 
   const sorted = [...rows].sort((a, b) => {
-    const av = sortValue(a, sortKey)
-    const bv = sortValue(b, sortKey)
+    const av = sortValue(a, sortKey, recoveryMap)
+    const bv = sortValue(b, sortKey, recoveryMap)
     if (typeof av === 'string' && typeof bv === 'string') {
       return sortDir === 'asc' ? av.localeCompare(bv) : bv.localeCompare(av)
     }
@@ -132,14 +187,15 @@ export function PnlProductTable({ productRows, channelRows, accountRows }: {
     return sortDir === 'asc' ? diff : -diff
   })
 
-  // Override first column label based on groupBy
+  // Override first column label based on groupBy, filter product-only columns
   const displayColumns = COLUMNS.map((col, i) =>
     i === 0 ? { ...col, label: GROUP_LABELS[groupBy] } : col
   ).filter(col => {
-    // Hide Exp. Profit/Dispatch for non-product groupings
-    if (col.key === 'expected_profit_per_dispatch' && groupBy !== 'product') return false
+    if (col.productOnly && !isProduct) return false
     return true
   })
+
+  const colCount = displayColumns.length + 1 // +1 for expand chevron column
 
   return (
     <div className="space-y-3">
@@ -180,6 +236,7 @@ export function PnlProductTable({ productRows, channelRows, accountRows }: {
         <tbody>
           {sorted.map(row => {
             const expanded = expandedRows.has(row.group_key)
+            const recovery = isProduct ? recoveryMap?.get(row.group_key) : undefined
             return (
               <>
                 <tr
@@ -196,6 +253,9 @@ export function PnlProductTable({ productRows, channelRows, accountRows }: {
                   </td>
                   <td className="px-3 py-2 font-medium">
                     <span className="inline-flex items-center gap-1.5">
+                      {isProduct && recovery && (
+                        <VerdictBadge verdict={recovery.verdict} />
+                      )}
                       {row.group_name}
                       {row.anomaly_count > 0 && (
                         <span className="inline-flex items-center justify-center h-4 min-w-4 px-1 rounded-full bg-red-500 text-white text-[10px] font-bold leading-none">
@@ -221,18 +281,32 @@ export function PnlProductTable({ productRows, channelRows, accountRows }: {
                     )}
                   </td>
                   <td className={`px-3 py-2 tabular-nums ${marginColor(row.margin_pct)}`}>
-                    {row.margin_pct !== null ? pct(row.margin_pct) : '—'}
+                    {row.margin_pct !== null ? pct(row.margin_pct) : '\u2014'}
                   </td>
-                  <td className="px-3 py-2 tabular-nums">
-                    {row.expected_profit_per_dispatch !== null
-                      ? fmt(row.expected_profit_per_dispatch)
-                      : '—'}
-                  </td>
+                  {isProduct && (
+                    <>
+                      <td className="px-3 py-2 tabular-nums">
+                        {row.expected_profit_per_dispatch !== null
+                          ? fmt(row.expected_profit_per_dispatch)
+                          : '\u2014'}
+                      </td>
+                      <td className={`px-3 py-2 tabular-nums ${recovery?.recovery_rounds != null ? recoveryRoundsColor(recovery.recovery_rounds) : ''}`}>
+                        {recovery?.recovery_rounds != null
+                          ? recovery.recovery_rounds.toFixed(2)
+                          : '\u2014'}
+                      </td>
+                      <td className="px-3 py-2 tabular-nums">
+                        {recovery?.cash_cycle_days != null
+                          ? `${Math.round(recovery.cash_cycle_days)} days`
+                          : '\u2014'}
+                      </td>
+                    </>
+                  )}
                 </tr>
 
                 {expanded && (
                   <tr key={`${row.group_key}-expanded`} className="border-b bg-muted/30">
-                    <td colSpan={COLUMNS.length + 1} className="px-6 py-4">
+                    <td colSpan={colCount} className="px-6 py-4">
                       <div className="grid grid-cols-2 gap-8">
                         {/* Fee breakdown */}
                         <div>
@@ -298,7 +372,7 @@ export function PnlProductTable({ productRows, channelRows, accountRows }: {
                                     Total COGS ({row.net_orders} units)
                                   </td>
                                   <td className="py-1 text-right tabular-nums font-medium">
-                                    {row.total_cogs !== null ? fmt(row.total_cogs) : '—'}
+                                    {row.total_cogs !== null ? fmt(row.total_cogs) : '\u2014'}
                                   </td>
                                 </tr>
                               </tbody>
@@ -310,6 +384,100 @@ export function PnlProductTable({ productRows, channelRows, accountRows }: {
                           )}
                         </div>
                       </div>
+
+                      {/* Returns Analysis — only for product grouping with recovery data */}
+                      {isProduct && recovery && (
+                        <div className="mt-6">
+                          <h4 className="text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-3">
+                            Returns Analysis
+                          </h4>
+                          <div className="grid grid-cols-2 gap-8">
+                            <div>
+                              <table className="w-full text-sm">
+                                <tbody>
+                                  <tr className="border-b border-muted">
+                                    <td className="py-1 text-muted-foreground">RTO (Logistics Returns)</td>
+                                    <td className="py-1 text-right tabular-nums">
+                                      {pct(recovery.rto_rate * 100)}
+                                    </td>
+                                    <td className="py-1 text-right tabular-nums text-muted-foreground text-xs pl-3">
+                                      {recovery.avg_rto_return_days != null
+                                        ? `Avg ${Math.round(recovery.avg_rto_return_days)} days`
+                                        : ''}
+                                    </td>
+                                  </tr>
+                                  <tr className="border-b border-muted">
+                                    <td className="py-1 text-muted-foreground">RVP (Customer Returns)</td>
+                                    <td className="py-1 text-right tabular-nums">
+                                      {pct(recovery.rvp_rate * 100)}
+                                    </td>
+                                    <td className="py-1 text-right tabular-nums text-muted-foreground text-xs pl-3">
+                                      {recovery.avg_rvp_return_days != null
+                                        ? `Avg ${Math.round(recovery.avg_rvp_return_days)} days`
+                                        : ''}
+                                    </td>
+                                  </tr>
+                                  <tr className="border-b border-muted">
+                                    <td className="py-1 text-muted-foreground">Cancellations</td>
+                                    <td className="py-1 text-right tabular-nums">
+                                      {pct(recovery.cancel_rate * 100)}
+                                    </td>
+                                    <td className="py-1" />
+                                  </tr>
+                                  <tr className="font-medium">
+                                    <td className="py-1.5">Total Return Cost</td>
+                                    <td className="py-1.5 text-right tabular-nums text-red-600">
+                                      {fmt(recovery.total_return_cost)}
+                                    </td>
+                                    <td className="py-1" />
+                                  </tr>
+                                </tbody>
+                              </table>
+                            </div>
+
+                            <div>
+                              {recovery.top_return_reasons.length > 0 ? (
+                                <>
+                                  <p className="text-xs font-medium text-muted-foreground mb-1.5">Top Return Reasons</p>
+                                  <table className="w-full text-sm">
+                                    <tbody>
+                                      {recovery.top_return_reasons.map((r, i) => (
+                                        <tr key={i} className="border-b border-muted">
+                                          <td className="py-1 text-muted-foreground w-5">{i + 1}.</td>
+                                          <td className="py-1">{r.reason}</td>
+                                          <td className="py-1 text-right tabular-nums text-muted-foreground">
+                                            {r.count} ({r.pct}%)
+                                          </td>
+                                        </tr>
+                                      ))}
+                                    </tbody>
+                                  </table>
+                                </>
+                              ) : (
+                                <p className="text-sm text-muted-foreground italic">
+                                  No return reason data available.
+                                </p>
+                              )}
+
+                              {/* Recovery summary */}
+                              <div className="mt-3 flex gap-4 text-xs text-muted-foreground">
+                                {recovery.all_in_cost_per_unit != null && (
+                                  <span>All-in cost/unit: {fmt(recovery.all_in_cost_per_unit)}</span>
+                                )}
+                                {recovery.net_settlement_per_unit != null && (
+                                  <span>Net settlement/unit: {fmt(recovery.net_settlement_per_unit)}</span>
+                                )}
+                              </div>
+                              {recovery.verdict_label && (
+                                <div className="mt-2">
+                                  <VerdictBadge verdict={recovery.verdict} />
+                                  <span className="ml-2 text-xs text-muted-foreground">{recovery.verdict_label}</span>
+                                </div>
+                              )}
+                            </div>
+                          </div>
+                        </div>
+                      )}
 
                       {/* Settlement info */}
                       <div className="mt-4 flex gap-6 text-xs text-muted-foreground">
@@ -326,7 +494,7 @@ export function PnlProductTable({ productRows, channelRows, accountRows }: {
 
           {sorted.length === 0 && (
             <tr>
-              <td colSpan={COLUMNS.length + 1} className="px-3 py-8 text-center text-muted-foreground">
+              <td colSpan={colCount} className="px-3 py-8 text-center text-muted-foreground">
                 No product data for the selected period.
               </td>
             </tr>

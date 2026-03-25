@@ -100,6 +100,28 @@ function buildEntries(data: WaterfallData): WaterfallEntry[] {
     raw: data.true_profit,
   })
 
+  // Overheads + Operating Profit: only show if overheads > 0
+  if (data.overheads > 0) {
+    // Overheads bar: deduction from contribution margin
+    const overheadBase = data.true_profit - data.overheads
+    entries.push({
+      name: 'Overheads',
+      base: Math.min(overheadBase, data.true_profit),
+      value: data.overheads,
+      color: RED,
+      raw: -data.overheads,
+    })
+
+    // Operating Profit: final result bar starting at 0
+    entries.push({
+      name: 'Op. Profit',
+      base: data.operating_profit >= 0 ? 0 : data.operating_profit,
+      value: Math.abs(data.operating_profit),
+      color: data.operating_profit >= 0 ? GREEN : RED,
+      raw: data.operating_profit,
+    })
+  }
+
   return entries
 }
 

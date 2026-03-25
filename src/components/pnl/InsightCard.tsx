@@ -9,7 +9,7 @@ interface Props {
   dismissing: boolean
 }
 
-const categoryConfig = {
+const categoryConfig: Record<string, { border: string; badge: string; label: string }> = {
   money_loser: {
     border: 'border-l-4 border-l-red-500',
     badge: 'bg-red-100 text-red-700',
@@ -25,7 +25,22 @@ const categoryConfig = {
     badge: 'bg-yellow-100 text-yellow-700',
     label: 'Billing',
   },
-} as const
+  cash_trap: {
+    border: 'border-l-4 border-l-purple-500',
+    badge: 'bg-purple-100 text-purple-700',
+    label: 'Cash Trap',
+  },
+  break_even: {
+    border: 'border-l-4 border-l-red-500',
+    badge: 'bg-red-100 text-red-700',
+    label: 'Break-Even',
+  },
+  return_pattern: {
+    border: 'border-l-4 border-l-orange-500',
+    badge: 'bg-orange-100 text-orange-700',
+    label: 'Return Pattern',
+  },
+}
 
 export function InsightCard({ insight, onDismiss, dismissing }: Props) {
   const config = categoryConfig[insight.category]

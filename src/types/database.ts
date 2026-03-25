@@ -109,6 +109,7 @@ export interface Purchase {
   gst_rate_slab: string | null  // e.g. "18%"
   tax_paid: boolean
   invoice_number: string | null
+  has_gst_invoice: boolean
   created_at: string
   lot_id: string | null
 }
@@ -309,4 +310,17 @@ export interface Import {
   error_log: string | null
   imported_by: string | null
   created_at: string
+}
+
+export type OverheadCategory = 'salary' | 'rent' | 'software' | 'marketing' | 'other'
+
+export interface MonthlyOverhead {
+  id: string
+  tenant_id: string
+  month: string
+  category: OverheadCategory
+  name: string
+  amount: number
+  created_at: string
+  updated_at: string
 }

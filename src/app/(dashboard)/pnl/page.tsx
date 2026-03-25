@@ -2,17 +2,20 @@
 
 import { useEffect, useState, useCallback } from 'react'
 import { toast } from 'sonner'
-import { Upload, Settings2, Info, TrendingUp, TrendingDown, DollarSign, Package } from 'lucide-react'
+import { Upload, Settings2, Info, TrendingUp, TrendingDown, DollarSign, Package, Landmark } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { PnlProductTable } from '@/components/pnl/PnlProductTable'
 import PnlOverviewTab from '@/components/pnl/PnlOverviewTab'
 import PnlCashFlowTab from '@/components/pnl/PnlCashFlowTab'
 import { PnlInsightsTab } from '@/components/pnl/PnlInsightsTab'
+import { ActionDashboard } from '@/components/pnl/ActionDashboard'
 import { PnlImportDialog } from '@/components/pnl/PnlImportDialog'
 import { AnomalyRulesPanel } from '@/components/pnl/AnomalyRulesPanel'
+import { OverheadsDialog } from '@/components/pnl/OverheadsDialog'
 import type { PnlBreakdown, PnlSummary } from '@/lib/pnl/calculate'
 import type { PnlDashboardResponse } from '@/lib/pnl/waterfall'
+import type { RecoveryMetrics } from '@/lib/pnl/recovery'
 
 function fmt(n: number) {
   return new Intl.NumberFormat('en-IN', { style: 'currency', currency: 'INR', maximumFractionDigits: 0 }).format(n)
@@ -39,6 +42,7 @@ interface MarketplaceAccount {
 interface PnlData {
   summary: PnlSummary
   rows: PnlBreakdown[]
+  recoveryMap?: Record<string, RecoveryMetrics>
 }
 
 function DeltaBadge({ value }: { value: number | null | undefined }) {
@@ -100,6 +104,7 @@ export default function PnlPage() {
 
   const [showImport, setShowImport] = useState(false)
   const [showRules, setShowRules] = useState(false)
+  const [showOverheads, setShowOverheads] = useState(false)
 
   useEffect(() => {
     fetch('/api/marketplace-accounts')
@@ -193,6 +198,9 @@ export default function PnlPage() {
           </p>
         </div>
         <div className="flex gap-2">
+          <Button variant="outline" onClick={() => setShowOverheads(true)}>
+            <Landmark className="h-4 w-4 mr-2" /> Overheads
+          </Button>
           <Button variant="outline" onClick={() => setShowRules(true)}>
             <Settings2 className="h-4 w-4 mr-2" /> Anomaly Rules
           </Button>
@@ -283,7 +291,25 @@ export default function PnlPage() {
             delta={mom?.margin_delta}
             deltaType="margin"
           />
+          {dashboardData && dashboardData.overheads_total > 0 && (
+            <SummaryCard
+              title="Operating Profit"
+              value={fmt(dashboardData.operating_profit)}
+              icon={dashboardData.operating_profit >= 0 ? TrendingUp : TrendingDown}
+              color={dashboardData.operating_profit >= 0 ? 'text-green-600' : 'text-red-600'}
+              delta={mom?.operating_profit_pct}
+            />
+          )}
         </div>
+      )}
+
+      {/* Action Dashboard */}
+      {!loading && hasData && dashboardData && dashboardData.insights.length > 0 && (
+        <ActionDashboard
+          insights={dashboardData.insights}
+          onDismiss={handleDismiss}
+          onSwitchTab={setActiveTab}
+        />
       )}
 
       {/* 4 Tabs */}
@@ -311,6 +337,9 @@ export default function PnlPage() {
                 topLosing={dashboardData.top_losing}
                 highReturn={dashboardData.high_return}
                 onSwitchTab={setActiveTab}
+                overheadsTotal={dashboardData.overheads_total}
+                operatingProfit={dashboardData.operating_profit}
+                breakEvenPct={dashboardData.break_even_pct}
               />
             ) : (
               <div className="py-8 text-center text-muted-foreground">Loading overview...</div>
@@ -322,6 +351,10 @@ export default function PnlPage() {
               productRows={productData?.rows ?? []}
               channelRows={channelData?.rows ?? []}
               accountRows={accountData?.rows ?? []}
+              recoveryMap={productData?.recoveryMap
+                ? new Map(Object.entries(productData.recoveryMap) as [string, RecoveryMetrics][])
+                : undefined
+              }
             />
           </TabsContent>
 
@@ -356,6 +389,12 @@ export default function PnlPage() {
         }}
       />
       <AnomalyRulesPanel open={showRules} onOpenChange={setShowRules} />
+      <OverheadsDialog
+        open={showOverheads}
+        onOpenChange={setShowOverheads}
+        month={selectedMonth}
+        onSaved={loadAll}
+      />
     </div>
   )
 }
