@@ -10,8 +10,9 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@
 import { Upload, CheckCircle2, XCircle, AlertCircle, Loader2 } from 'lucide-react'
 import { createClient } from '@/lib/supabase/client'
 import { parsePnlXlsx, type ParsedPnlRow } from '@/lib/importers/pnl-xlsx-parser'
+import { toast } from 'sonner'
 
-type Step = 'select-account' | 'upload' | 'preview' | 'importing' | 'results'
+type Step = 'select-account' | 'upload' | 'parsing' | 'preview' | 'importing' | 'results'
 
 interface Props {
   open: boolean
@@ -29,8 +30,9 @@ interface ImportResults {
   imported: number
   skipped: number
   enriched: number
-  unmapped: number
-  anomalies: number
+  unmappedSkus: string[]
+  anomalyCount: number
+  errors: string[]
 }
 
 function fmt(n: number) {
@@ -46,23 +48,29 @@ export function PnlImportDialog({ open, onOpenChange, onImportComplete }: Props)
   const [accounts, setAccounts] = useState<MarketplaceAccount[]>([])
   const [selectedAccountId, setSelectedAccountId] = useState<string>('')
   const [rows, setRows] = useState<ParsedPnlRow[]>([])
-  const [duplicateIndices, setDuplicateIndices] = useState<Set<number>>(new Set())
-  const [unmappedIndices, setUnmappedIndices] = useState<Set<number>>(new Set())
+  const [duplicateItemIds, setDuplicateItemIds] = useState<Set<string>>(new Set())
   const [results, setResults] = useState<ImportResults | null>(null)
   const [loadingAccounts, setLoadingAccounts] = useState(false)
+  const [parseError, setParseError] = useState<string | null>(null)
 
-  const validRows = rows.filter((_, i) => !duplicateIndices.has(i) && !unmappedIndices.has(i))
-  const dupCount = rows.filter((_, i) => duplicateIndices.has(i)).length
-  const unmappedCount = rows.filter((_, i) => unmappedIndices.has(i)).length
-  const importableCount = rows.length - dupCount
+  // Compute counts
+  const duplicateIndices = new Set(
+    rows.map((r, i) => duplicateItemIds.has(r.orderItemId) ? i : -1).filter(i => i >= 0)
+  )
+  const errorIndices = new Set(
+    rows.map((r, i) => r.error ? i : -1).filter(i => i >= 0)
+  )
+  const dupCount = duplicateIndices.size
+  const errorCount = errorIndices.size
+  const importableCount = rows.length - dupCount - errorCount
 
   const reset = useCallback(() => {
     setStep('select-account')
     setSelectedAccountId('')
     setRows([])
-    setDuplicateIndices(new Set())
-    setUnmappedIndices(new Set())
+    setDuplicateItemIds(new Set())
     setResults(null)
+    setParseError(null)
   }, [])
 
   // Fetch Flipkart marketplace accounts
@@ -78,11 +86,9 @@ export function PnlImportDialog({ open, onOpenChange, onImportComplete }: Props)
           .from('marketplace_accounts')
           .select('id, account_name, platform')
           .eq('platform', 'flipkart')
-        if (!cancelled && data) {
-          setAccounts(data)
-        }
+        if (!cancelled && data) setAccounts(data)
       } catch {
-        // silently fail — user will see empty dropdown
+        // empty dropdown
       } finally {
         if (!cancelled) setLoadingAccounts(false)
       }
@@ -95,40 +101,44 @@ export function PnlImportDialog({ open, onOpenChange, onImportComplete }: Props)
   const onDrop = useCallback(async (files: File[]) => {
     const file = files[0]
     if (!file) return
+    setParseError(null)
+    setStep('parsing')
 
     try {
       const buffer = await file.arrayBuffer()
       const parsed = await parsePnlXlsx(buffer)
+
+      if (parsed.length === 0) {
+        setParseError('No data rows found in the "Orders P&L" sheet.')
+        setStep('upload')
+        return
+      }
+
       setRows(parsed)
+      setStep('preview')
 
       // Check for duplicates
-      setStep('preview')
       try {
-        const orderItemIds = parsed.map((r: ParsedPnlRow) => r.orderItemId).filter(Boolean)
+        const orderItemIds = parsed.map(r => r.orderItemId).filter(Boolean)
         const res = await fetch('/api/pnl/check-duplicates', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            order_item_ids: orderItemIds,
-            marketplace_account_id: selectedAccountId,
-          }),
+          body: JSON.stringify({ orderItemIds }),
         })
         if (res.ok) {
           const data = await res.json()
-          if (data.duplicateIndices) {
-            setDuplicateIndices(new Set(data.duplicateIndices as number[]))
-          }
-          if (data.unmappedIndices) {
-            setUnmappedIndices(new Set(data.unmappedIndices as number[]))
+          if (data.existingItemIds?.length) {
+            setDuplicateItemIds(new Set(data.existingItemIds))
           }
         }
       } catch {
         // proceed without dedup info
       }
-    } catch {
-      // parse error — could show toast here
+    } catch (e) {
+      setParseError((e as Error).message || 'Failed to parse XLSX file')
+      setStep('upload')
     }
-  }, [selectedAccountId])
+  }, [])
 
   const { getRootProps, getInputProps, isDragActive } = useDropzone({
     onDrop,
@@ -144,28 +154,31 @@ export function PnlImportDialog({ open, onOpenChange, onImportComplete }: Props)
     setStep('importing')
 
     try {
+      const skipIndices = [...duplicateIndices, ...errorIndices]
       const res = await fetch('/api/pnl/import', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           rows,
-          marketplace_account_id: selectedAccountId,
-          skipIndices: [...duplicateIndices],
+          marketplaceAccountId: selectedAccountId,
+          skipRowIndices: skipIndices,
         }),
       })
+
+      if (!res.ok) {
+        const errData = await res.json().catch(() => ({ error: 'Import failed' }))
+        toast.error(errData.error || 'Import failed')
+        setStep('preview')
+        return
+      }
+
       const data: ImportResults = await res.json()
       setResults(data)
       setStep('results')
-      if (data.imported > 0) onImportComplete()
-    } catch {
-      setResults({
-        imported: 0,
-        skipped: rows.length,
-        enriched: 0,
-        unmapped: 0,
-        anomalies: 0,
-      })
-      setStep('results')
+      if (data.imported > 0 || data.enriched > 0) onImportComplete()
+    } catch (e) {
+      toast.error((e as Error).message || 'Import failed')
+      setStep('preview')
     }
   }
 
@@ -176,7 +189,8 @@ export function PnlImportDialog({ open, onOpenChange, onImportComplete }: Props)
           <DialogTitle>
             {step === 'select-account' && 'Import Flipkart P&L'}
             {step === 'upload' && 'Upload P&L File'}
-            {step === 'preview' && 'Preview Import'}
+            {step === 'parsing' && 'Parsing...'}
+            {step === 'preview' && `Preview — ${rows.length} rows`}
             {step === 'importing' && 'Importing...'}
             {step === 'results' && 'Import Complete'}
           </DialogTitle>
@@ -192,13 +206,6 @@ export function PnlImportDialog({ open, onOpenChange, onImportComplete }: Props)
               <div className="flex items-center gap-2 text-muted-foreground">
                 <Loader2 className="h-4 w-4 animate-spin" />
                 <span className="text-sm">Loading accounts...</span>
-              </div>
-            ) : accounts.length === 0 ? (
-              <div className="border border-dashed rounded-lg p-6 text-center">
-                <AlertCircle className="h-6 w-6 mx-auto mb-2 text-muted-foreground" />
-                <p className="text-sm text-muted-foreground">
-                  No Flipkart marketplace accounts found. Add one in Settings first.
-                </p>
               </div>
             ) : (
               <Select value={selectedAccountId} onValueChange={setSelectedAccountId}>
@@ -226,6 +233,12 @@ export function PnlImportDialog({ open, onOpenChange, onImportComplete }: Props)
                 {accounts.find(a => a.id === selectedAccountId)?.account_name}
               </span>
             </p>
+            {parseError && (
+              <div className="rounded-md border border-red-200 bg-red-50 p-3 text-sm text-red-700">
+                <AlertCircle className="h-4 w-4 inline mr-1" />
+                {parseError}
+              </div>
+            )}
             <div
               {...getRootProps()}
               className={`border-2 border-dashed rounded-lg p-12 text-center cursor-pointer transition-colors
@@ -243,6 +256,14 @@ export function PnlImportDialog({ open, onOpenChange, onImportComplete }: Props)
           </div>
         )}
 
+        {/* -- PARSING -- */}
+        {step === 'parsing' && (
+          <div className="flex-1 flex items-center justify-center py-12">
+            <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
+            <span className="ml-3 text-muted-foreground">Parsing XLSX file...</span>
+          </div>
+        )}
+
         {/* -- PREVIEW / IMPORTING -- */}
         {(step === 'preview' || step === 'importing') && (
           <div className="flex flex-col space-y-3 flex-1 min-h-0">
@@ -254,13 +275,13 @@ export function PnlImportDialog({ open, onOpenChange, onImportComplete }: Props)
               {dupCount > 0 && (
                 <span className="flex items-center gap-1 text-yellow-600">
                   <AlertCircle className="h-4 w-4" />
-                  {dupCount} duplicate{dupCount > 1 ? 's' : ''} (will be skipped)
+                  {dupCount} duplicate{dupCount > 1 ? 's' : ''} (will skip)
                 </span>
               )}
-              {unmappedCount > 0 && (
-                <span className="flex items-center gap-1 text-orange-600">
+              {errorCount > 0 && (
+                <span className="flex items-center gap-1 text-red-600">
                   <XCircle className="h-4 w-4" />
-                  {unmappedCount} unmapped SKU{unmappedCount > 1 ? 's' : ''}
+                  {errorCount} error{errorCount > 1 ? 's' : ''}
                 </span>
               )}
             </div>
@@ -269,7 +290,7 @@ export function PnlImportDialog({ open, onOpenChange, onImportComplete }: Props)
                 <TableHeader>
                   <TableRow>
                     <TableHead className="w-8">#</TableHead>
-                    <TableHead>Order ID</TableHead>
+                    <TableHead>Order Item ID</TableHead>
                     <TableHead>SKU</TableHead>
                     <TableHead>Status</TableHead>
                     <TableHead className="text-right">Revenue</TableHead>
@@ -278,20 +299,20 @@ export function PnlImportDialog({ open, onOpenChange, onImportComplete }: Props)
                   </TableRow>
                 </TableHeader>
                 <TableBody>
-                  {rows.map((row, idx) => {
+                  {rows.slice(0, 200).map((row, idx) => {
                     const isDup = duplicateIndices.has(idx)
-                    const isUnmapped = unmappedIndices.has(idx)
+                    const hasErr = errorIndices.has(idx)
                     return (
                       <TableRow
                         key={idx}
                         className={
-                          isDup ? 'bg-yellow-50 dark:bg-yellow-950/20' :
-                          isUnmapped ? 'bg-orange-50 dark:bg-orange-950/20' : ''
+                          hasErr ? 'bg-red-50' :
+                          isDup ? 'bg-yellow-50' : ''
                         }
                       >
                         <TableCell className="text-xs text-muted-foreground">{idx + 1}</TableCell>
-                        <TableCell className="text-sm font-mono">{row.orderItemId || '—'}</TableCell>
-                        <TableCell className="text-sm">{row.skuName || '—'}</TableCell>
+                        <TableCell className="text-xs font-mono">{row.orderItemId || '—'}</TableCell>
+                        <TableCell className="text-sm max-w-[200px] truncate">{row.skuName || '—'}</TableCell>
                         <TableCell className="text-sm">{row.orderStatus || '—'}</TableCell>
                         <TableCell className="text-sm text-right tabular-nums">
                           {row.accountedNetSales ? fmt(row.accountedNetSales) : '—'}
@@ -300,13 +321,13 @@ export function PnlImportDialog({ open, onOpenChange, onImportComplete }: Props)
                           {row.totalExpenses ? fmt(Math.abs(row.totalExpenses)) : '—'}
                         </TableCell>
                         <TableCell>
-                          {isDup ? (
-                            <Badge variant="outline" className="text-yellow-700 border-yellow-400 bg-yellow-50 dark:bg-yellow-950/30 text-xs">
-                              Duplicate
+                          {hasErr ? (
+                            <Badge variant="outline" className="text-red-700 border-red-400 bg-red-50 text-xs">
+                              {row.error}
                             </Badge>
-                          ) : isUnmapped ? (
-                            <Badge variant="outline" className="text-orange-700 border-orange-400 bg-orange-50 dark:bg-orange-950/30 text-xs">
-                              Unmapped
+                          ) : isDup ? (
+                            <Badge variant="outline" className="text-yellow-700 border-yellow-400 bg-yellow-50 text-xs">
+                              Duplicate
                             </Badge>
                           ) : (
                             <CheckCircle2 className="h-4 w-4 text-green-600" />
@@ -317,6 +338,11 @@ export function PnlImportDialog({ open, onOpenChange, onImportComplete }: Props)
                   })}
                 </TableBody>
               </Table>
+              {rows.length > 200 && (
+                <p className="text-xs text-muted-foreground text-center py-2">
+                  Showing first 200 of {rows.length} rows
+                </p>
+              )}
             </div>
           </div>
         )}
@@ -324,32 +350,42 @@ export function PnlImportDialog({ open, onOpenChange, onImportComplete }: Props)
         {/* -- RESULTS -- */}
         {step === 'results' && results && (
           <div className="flex-1 space-y-4">
-            <div className="grid grid-cols-5 gap-3">
-              <div className="rounded-lg border bg-green-50 dark:bg-green-950/20 p-4 text-center">
-                <div className="text-2xl font-bold text-green-700 dark:text-green-400">{results.imported}</div>
-                <div className="text-xs text-green-600 dark:text-green-500 mt-1">Imported</div>
+            <div className="grid grid-cols-3 gap-3">
+              <div className="rounded-lg border bg-green-50 p-4 text-center">
+                <div className="text-2xl font-bold text-green-700">{results.imported}</div>
+                <div className="text-xs text-green-600 mt-1">Imported</div>
+              </div>
+              <div className="rounded-lg border bg-blue-50 p-4 text-center">
+                <div className="text-2xl font-bold text-blue-700">{results.enriched}</div>
+                <div className="text-xs text-blue-600 mt-1">Enriched</div>
               </div>
               <div className="rounded-lg border bg-muted/50 p-4 text-center">
                 <div className="text-2xl font-bold text-muted-foreground">{results.skipped}</div>
                 <div className="text-xs text-muted-foreground mt-1">Skipped</div>
               </div>
-              <div className="rounded-lg border bg-blue-50 dark:bg-blue-950/20 p-4 text-center">
-                <div className="text-2xl font-bold text-blue-700 dark:text-blue-400">{results.enriched}</div>
-                <div className="text-xs text-blue-600 dark:text-blue-500 mt-1">Enriched</div>
-              </div>
-              <div className="rounded-lg border bg-orange-50 dark:bg-orange-950/20 p-4 text-center">
-                <div className="text-2xl font-bold text-orange-700 dark:text-orange-400">{results.unmapped}</div>
-                <div className="text-xs text-orange-600 dark:text-orange-500 mt-1">Unmapped</div>
-              </div>
-              <div className="rounded-lg border bg-red-50 dark:bg-red-950/20 p-4 text-center">
-                <div className="text-2xl font-bold text-red-700 dark:text-red-400">{results.anomalies}</div>
-                <div className="text-xs text-red-600 dark:text-red-500 mt-1">Anomalies</div>
-              </div>
             </div>
-            {results.unmapped > 0 && (
-              <p className="text-xs text-orange-600">
-                Some platform SKUs could not be mapped to master SKUs. Map them in Master Catalog &rarr; SKU Mappings.
-              </p>
+            {results.unmappedSkus.length > 0 && (
+              <div className="rounded-md border border-orange-200 bg-orange-50 p-3 text-sm text-orange-700">
+                <AlertCircle className="h-4 w-4 inline mr-1" />
+                {results.unmappedSkus.length} unmapped SKU{results.unmappedSkus.length > 1 ? 's' : ''}:{' '}
+                <span className="font-mono text-xs">{results.unmappedSkus.slice(0, 10).join(', ')}</span>
+                {results.unmappedSkus.length > 10 && ` and ${results.unmappedSkus.length - 10} more`}
+              </div>
+            )}
+            {results.anomalyCount > 0 && (
+              <div className="rounded-md border border-red-200 bg-red-50 p-3 text-sm text-red-700">
+                <AlertCircle className="h-4 w-4 inline mr-1" />
+                {results.anomalyCount} anomal{results.anomalyCount > 1 ? 'ies' : 'y'} detected. Check the Anomaly Rules panel for details.
+              </div>
+            )}
+            {results.errors.length > 0 && (
+              <div className="rounded-md border border-red-200 bg-red-50 p-3 text-sm text-red-700">
+                <AlertCircle className="h-4 w-4 inline mr-1" />
+                {results.errors.length} error{results.errors.length > 1 ? 's' : ''}:
+                <ul className="ml-5 mt-1 list-disc text-xs">
+                  {results.errors.slice(0, 5).map((e, i) => <li key={i}>{e}</li>)}
+                </ul>
+              </div>
             )}
           </div>
         )}
@@ -358,10 +394,7 @@ export function PnlImportDialog({ open, onOpenChange, onImportComplete }: Props)
           {step === 'select-account' && (
             <>
               <Button variant="outline" onClick={() => onOpenChange(false)}>Cancel</Button>
-              <Button
-                onClick={() => setStep('upload')}
-                disabled={!selectedAccountId}
-              >
+              <Button onClick={() => setStep('upload')} disabled={!selectedAccountId}>
                 Next &rarr;
               </Button>
             </>
@@ -373,11 +406,9 @@ export function PnlImportDialog({ open, onOpenChange, onImportComplete }: Props)
           )}
           {step === 'preview' && (
             <>
-              <Button variant="outline" onClick={reset}>Back</Button>
+              <Button variant="outline" onClick={reset}>Cancel</Button>
               <Button onClick={handleImport} disabled={importableCount === 0}>
-                Import {importableCount} {importableCount === 1 ? 'row' : 'rows'}
-                {dupCount > 0 && ` (skip ${dupCount})`}
-                {' \u2192'}
+                Import {importableCount} rows &rarr;
               </Button>
             </>
           )}
