@@ -189,7 +189,7 @@ export default function PnlPage() {
         <div>
           <h1 className="text-2xl font-bold">Profit & Loss</h1>
           <p className="text-sm text-muted-foreground">
-            True profit per SKU combining platform fees with your COGS data.
+            Contribution margin per SKU — platform fees, logistics, and COGS breakdown.
           </p>
         </div>
         <div className="flex gap-2">
@@ -197,7 +197,7 @@ export default function PnlPage() {
             <Settings2 className="h-4 w-4 mr-2" /> Anomaly Rules
           </Button>
           <Button onClick={() => setShowImport(true)}>
-            <Upload className="h-4 w-4 mr-2" /> Import P&L Report
+            <Upload className="h-4 w-4 mr-2" /> Import Data
           </Button>
         </div>
       </div>
@@ -238,7 +238,7 @@ export default function PnlPage() {
             Import your first Flipkart P&L report to see true profit per SKU.
           </p>
           <Button onClick={() => setShowImport(true)}>
-            <Upload className="h-4 w-4 mr-2" /> Import P&L Report
+            <Upload className="h-4 w-4 mr-2" /> Import Data
           </Button>
         </div>
       )}

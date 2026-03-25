@@ -254,7 +254,13 @@ export function PnlImportDialog({ open, onOpenChange, onImportComplete }: Props)
       const data: ImportResults = await res.json()
       setResults(data)
       setStep('results')
-      if (data.imported > 0 || data.enriched > 0) onImportComplete()
+      if (data.imported > 0 || data.enriched > 0) {
+        const typeLabel = REPORT_TYPES.find(r => r.type === reportType)?.label ?? 'Report'
+        toast.success(`${typeLabel} imported — ${data.imported} new, ${data.enriched} enriched, ${data.skipped} skipped`)
+        onImportComplete()
+      } else if (data.skipped > 0) {
+        toast.info(`All ${data.skipped} rows were duplicates — nothing new to import`)
+      }
     } catch (e) {
       toast.error((e as Error).message || 'Import failed')
       setStep('preview')
