@@ -36,6 +36,7 @@ export interface CropBox {
 }
 
 export interface CropProfile {
+  id?: string
   name: string
   labelSize: string
   crop: CropBox
@@ -44,8 +45,97 @@ export interface CropProfile {
   invoiceSize?: string
 }
 
+// ── API-backed profile persistence ────────────────────────────────
+
 const PROFILES_STORAGE_KEY = 'fk-label-crop-profiles'
 
+export async function fetchProfiles(): Promise<CropProfile[]> {
+  try {
+    const res = await fetch('/api/labels/crop-profiles')
+    if (!res.ok) throw new Error('Failed to fetch profiles')
+    const dbProfiles: CropProfile[] = await res.json()
+
+    // One-time migration: push any localStorage profiles to DB
+    try {
+      const raw = localStorage.getItem(PROFILES_STORAGE_KEY)
+      if (raw) {
+        const localProfiles: CropProfile[] = JSON.parse(raw)
+        const dbNames = new Set(dbProfiles.map(p => p.name))
+        const toMigrate = localProfiles.filter(p => !dbNames.has(p.name))
+        for (const p of toMigrate) {
+          const migRes = await fetch('/api/labels/crop-profiles', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(p),
+          })
+          if (migRes.ok) {
+            const saved = await migRes.json()
+            dbProfiles.push(saved)
+          }
+        }
+        localStorage.removeItem(PROFILES_STORAGE_KEY)
+      }
+    } catch { /* migration failed silently — not critical */ }
+
+    return dbProfiles
+  } catch {
+    // Fallback: read from localStorage if API is down
+    try {
+      const raw = localStorage.getItem(PROFILES_STORAGE_KEY)
+      if (!raw) return []
+      return JSON.parse(raw)
+    } catch { return [] }
+  }
+}
+
+export async function createProfile(profile: Omit<CropProfile, 'id'>): Promise<CropProfile | null> {
+  try {
+    const res = await fetch('/api/labels/crop-profiles', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(profile),
+    })
+    if (!res.ok) {
+      const { error } = await res.json()
+      throw new Error(error ?? 'Failed to create profile')
+    }
+    return await res.json()
+  } catch (e) {
+    console.error('createProfile error:', e)
+    return null
+  }
+}
+
+export async function updateProfile(id: string, data: Partial<CropProfile>): Promise<CropProfile | null> {
+  try {
+    const res = await fetch('/api/labels/crop-profiles', {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ id, ...data }),
+    })
+    if (!res.ok) {
+      const { error } = await res.json()
+      throw new Error(error ?? 'Failed to update profile')
+    }
+    return await res.json()
+  } catch (e) {
+    console.error('updateProfile error:', e)
+    return null
+  }
+}
+
+export async function deleteProfile(id: string): Promise<boolean> {
+  try {
+    const res = await fetch('/api/labels/crop-profiles', {
+      method: 'DELETE',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ id }),
+    })
+    return res.ok
+  } catch { return false }
+}
+
+/** @deprecated Use fetchProfiles() instead — kept only for type compatibility during migration */
 export function loadProfiles(): CropProfile[] {
   try {
     const raw = localStorage.getItem(PROFILES_STORAGE_KEY)
@@ -54,8 +144,9 @@ export function loadProfiles(): CropProfile[] {
   } catch { return [] }
 }
 
-export function saveProfiles(profiles: CropProfile[]) {
-  try { localStorage.setItem(PROFILES_STORAGE_KEY, JSON.stringify(profiles)) } catch { /* ignore */ }
+/** @deprecated Use createProfile/updateProfile instead */
+export function saveProfiles(_profiles: CropProfile[]) {
+  // No-op: profiles now persist via API
 }
 
 interface LabelCropSelectorProps {
@@ -245,13 +336,10 @@ export function LabelCropSelector({ file, profiles, mode = 'save', editProfile, 
 
   const handleMouseUp = () => setDrawing(false)
 
-  function handleSaveProfile() {
+  async function handleSaveProfile() {
     if (!newProfileName.trim() || !cropBox) return
     const name = newProfileName.trim()
-    // When editing, remove the original profile name (handles renames)
-    const originalName = editProfile?.name ?? name
-    const existing = profiles.filter(p => p.name !== originalName && p.name !== name)
-    const profile: CropProfile = {
+    const profileData = {
       name,
       labelSize: selectedLabelSize === 'Custom' ? `${customW} x ${customH} in` : selectedLabelSize,
       crop: cropBox,
@@ -259,20 +347,37 @@ export function LabelCropSelector({ file, profiles, mode = 'save', editProfile, 
       invoiceCrop: includeInvoice ? invoiceCrop ?? undefined : undefined,
       invoiceSize: includeInvoice ? selectedInvoiceSize : undefined,
     }
-    const updated = [...existing, profile]
+
+    let updated: CropProfile[]
+    if (editProfile?.id) {
+      // Update existing profile in DB
+      const result = await updateProfile(editProfile.id, profileData)
+      if (!result) return
+      updated = profiles.map(p => p.id === editProfile.id ? result : p)
+    } else {
+      // Create new profile in DB
+      const result = await createProfile(profileData)
+      if (!result) return
+      // Remove any old profile with the same name (edit without ID — legacy)
+      const originalName = editProfile?.name ?? name
+      updated = [...profiles.filter(p => p.name !== originalName && p.name !== name), result]
+    }
+
     onProfilesChanged(updated)
-    saveProfiles(updated)
     setSelectedProfile(name)
     setNewProfileName('')
     setShowSaveInput(false)
-    // Signal done
     onCropConfirmed(cropBox, labelSize, name, { includeInvoice, invoiceCrop: invoiceCrop ?? undefined, invoiceSize: selectedInvoiceSize })
   }
 
-  function handleDeleteProfile(name: string) {
+  async function handleDeleteProfile(name: string) {
+    const profile = profiles.find(p => p.name === name)
+    if (profile?.id) {
+      const ok = await deleteProfile(profile.id)
+      if (!ok) return
+    }
     const updated = profiles.filter(p => p.name !== name)
     onProfilesChanged(updated)
-    saveProfiles(updated)
     if (selectedProfile === name) setSelectedProfile('')
   }
 

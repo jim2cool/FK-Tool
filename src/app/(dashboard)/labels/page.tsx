@@ -11,7 +11,7 @@ import { toast } from 'sonner'
 import { LabelUploadZone } from '@/components/labels/LabelUploadZone'
 import { LabelPreviewTable } from '@/components/labels/LabelPreviewTable'
 import { UnmappedSkuPanel } from '@/components/labels/UnmappedSkuPanel'
-import { LabelCropSelector, type CropBox, type CropProfile, type LabelSize, LABEL_SIZES, INVOICE_SIZE, loadProfiles, saveProfiles } from '@/components/labels/LabelCropSelector'
+import { LabelCropSelector, type CropBox, type CropProfile, type LabelSize, LABEL_SIZES, INVOICE_SIZE, fetchProfiles, deleteProfile, updateProfile } from '@/components/labels/LabelCropSelector'
 import { parseLabelPdf } from '@/lib/labels/pdf-parser'
 import { cropAndGroupLabels, cropAndGroupInvoices, groupLabelsByProduct } from '@/lib/labels/pdf-cropper'
 import type { ParsedLabel, ResolvedLabel, LabelGroup, LabelSortResult, UnmappedSku } from '@/lib/labels/types'
@@ -342,10 +342,14 @@ function CropProfilesTab({ profiles, onProfilesChanged }: {
   const [renamingProfile, setRenamingProfile] = useState<string | null>(null)
   const [renameValue, setRenameValue] = useState('')
 
-  function handleDeleteProfile(name: string) {
+  async function handleDeleteProfile(name: string) {
+    const profile = profiles.find(p => p.name === name)
+    if (profile?.id) {
+      const ok = await deleteProfile(profile.id)
+      if (!ok) { toast.error('Failed to delete profile'); return }
+    }
     const updated = profiles.filter(p => p.name !== name)
     onProfilesChanged(updated)
-    saveProfiles(updated)
     toast.success(`Deleted profile "${name}"`)
   }
 
@@ -385,13 +389,17 @@ function CropProfilesTab({ profiles, onProfilesChanged }: {
     setRenameValue(name)
   }
 
-  function handleConfirmRename(oldName: string) {
+  async function handleConfirmRename(oldName: string) {
     const newName = renameValue.trim()
     if (!newName || newName === oldName) { setRenamingProfile(null); return }
     if (profiles.some(p => p.name === newName)) { toast.error(`Profile "${newName}" already exists`); return }
+    const profile = profiles.find(p => p.name === oldName)
+    if (profile?.id) {
+      const result = await updateProfile(profile.id, { name: newName })
+      if (!result) { toast.error('Failed to rename profile'); return }
+    }
     const updated = profiles.map(p => p.name === oldName ? { ...p, name: newName } : p)
     onProfilesChanged(updated)
-    saveProfiles(updated)
     setRenamingProfile(null)
     toast.success(`Renamed to "${newName}"`)
   }
@@ -494,7 +502,7 @@ export default function LabelsPage() {
   const [profiles, setProfiles] = useState<CropProfile[]>([])
   const [activeTab, setActiveTab] = useState('sort')
 
-  useEffect(() => { setProfiles(loadProfiles()) }, [])
+  useEffect(() => { fetchProfiles().then(setProfiles) }, [])
 
   return (
     <div className="p-6 max-w-5xl">
