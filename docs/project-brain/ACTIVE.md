@@ -6,23 +6,24 @@
 ---
 
 ## Current Focus
-**Combo/bundle SKU support shipped. Crop profiles DB migration started.** The `crop_profiles` table exists in Supabase but API + UI swap not done yet. Next session: build CRUD API, replace localStorage reads/writes with API calls.
+**Label Sorting feature fully complete.** Crop profiles moved from localStorage to DB. Combo/bundle SKU support shipped. Next: fix combo SKU mapping issue (reassign existing mapping when platform SKU is re-mapped from product to combo), then move to P&L.
 
-## Last Session (2026-03-25)
+## Last Session (2026-03-25, session 2)
 **What happened:**
-- Built combo SKU mapping UI — platform SKUs can now be mapped to combos from the Combos tab
-- Lowered combo minimum from 2 to 1 component (enables volume packs like "Soap 3-Pack" = 1 product x3)
-- Added "Add Mapping" button to Products tab for unmapped SKUs (was just a static badge before)
-- Added "+ Add" link for already-mapped SKUs to add additional channel mappings
-- Fixed duplicate constraint error: API now reassigns existing mapping when platform SKU already mapped elsewhere
-- Edit dialog supports both "add" (POST) and "edit" (PATCH) modes
-- Created `crop_profiles` table in Supabase (empty, API not built yet)
+- Built CRUD API for crop profiles at `/api/labels/crop-profiles` (GET, POST, PATCH, DELETE)
+- Replaced all localStorage reads/writes with API calls in `LabelCropSelector.tsx` + `labels/page.tsx`
+- Auto-migration: existing localStorage profiles pushed to DB on first load, then localStorage cleared
+- Both existing profiles ("Flipkart Label Only" + "Flipkart with Invoice") migrated successfully
+- Verified on live site — profiles load from DB, Crop Profiles tab shows 2 profiles
 
-**Commits:** `ff2d3a4` through `d022d05` (4 commits)
-**Deployed:** Yes, 3 times throughout session
+**Commits:** `ba171e0`
+**Deployed:** Yes
+
+## Known Bug to Fix Next
+- **Combo SKU mapping fails if platform SKU was previously mapped to a product** — unique constraint on `(tenant_id, platform, platform_sku)` blocks the insert. The product→product reassignment works (POST auto-reassigns), but the combo mapping dialog doesn't use this same logic. Fix: make combo mapping dialog hit the same reassignment-aware endpoint.
 
 ## What's Next
-1. **Finish crop profiles → DB migration** — table exists, need: CRUD API (`/api/labels/crop-profiles`), replace `loadProfiles()`/`saveProfiles()` in `LabelCropSelector.tsx` + `labels/page.tsx` with fetch calls
+1. **Fix combo SKU mapping reassignment** — when mapping a platform SKU to a combo that's already mapped to a product, update instead of insert
 2. **P&L per SKU** — settlement CSV import, match to orders, true profit calculation
 3. **Inventory Pipeline** — returns grading, live inventory, claims management
 

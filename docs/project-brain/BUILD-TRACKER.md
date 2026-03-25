@@ -37,6 +37,7 @@
 | Combo → platform SKU mapping UI | 2026-03-25 | "Add Mapping" dialog on CombosTab, delete mapping per row |
 | Products tab — add mapping for unmapped SKUs | 2026-03-25 | Clickable "+ Add Mapping" button replaces static Unmapped badge |
 | SKU mapping reassignment | 2026-03-25 | API auto-reassigns existing mapping instead of unique constraint error |
+| Crop profiles → DB migration | 2026-03-25 | CRUD API at `/api/labels/crop-profiles`, auto-migrates localStorage → DB, shared across tenant |
 
 ---
 
@@ -63,7 +64,7 @@
 - [x] ~~Invoice cropping (freeform, A4 output, proportional scaling)~~ ✅
 - [x] ~~Custom label sizes (user-defined W x H)~~ ✅
 - [x] ~~Platform-agnostic text (removed Flipkart-specific wording)~~ ✅
-- [ ] **Move profiles to DB** — currently localStorage only, needs DB for multi-device/multi-user
+- [x] ~~Move profiles to DB~~ ✅ — CRUD API + auto-migration from localStorage, deployed 2026-03-25
 - [ ] **User roles (basic)** — owner / manager / warehouse-staff on `user_profiles`
 - [ ] **Daily summary view** — dispatch counts per product/account/warehouse, COD vs PREPAID breakdown
 - [ ] **Add `location` column to marketplace_accounts** — city/region for each account
