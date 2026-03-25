@@ -33,6 +33,10 @@
 | User-guided crop selector | 2026-03-24 | Draw rectangle on PDF, aspect-ratio locked to label size, named profiles |
 | Label order/dispatch ingestion | 2026-03-24 | Auto-creates orders + dispatches from label data |
 | Local PDF.js worker | 2026-03-24 | CDN fails in Docker, now served from public/ |
+| Combo/bundle SKU support | 2026-03-25 | combo_products table, CombosTab with CRUD, volume packs (min 1 component) |
+| Combo → platform SKU mapping UI | 2026-03-25 | "Add Mapping" dialog on CombosTab, delete mapping per row |
+| Products tab — add mapping for unmapped SKUs | 2026-03-25 | Clickable "+ Add Mapping" button replaces static Unmapped badge |
+| SKU mapping reassignment | 2026-03-25 | API auto-reassigns existing mapping instead of unique constraint error |
 
 ---
 

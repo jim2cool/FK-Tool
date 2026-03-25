@@ -1,30 +1,24 @@
 # FK-Tool — Active Context
 
 > READ THIS FIRST every session. Keep it current.
-> Last updated: 2026-03-24
+> Last updated: 2026-03-25
 
 ---
 
 ## Current Focus
-**Label Sorting feature complete with all polish.** 2-tab system, crop profiles, invoice cropping, custom sizes, inline rename. Next: move profiles to DB, then P&L module.
+**Combo/bundle SKU support shipped.** Users can create combos (multi-product bundles + single-product volume packs), map platform SKUs to them, and label sorting resolves combos into component products. Next: continue mapping all unmapped combo SKUs on live site, then move to next roadmap item.
 
-## Last Session (2026-03-24)
+## Last Session (2026-03-25)
 **What happened:**
-- Extended brainstorm on product vision — FK-Tool as SaaS for Indian sellers
-- Corrected org/account mapping, merged tenants (shashwat + finance share "Nuvio")
-- Built complete Label Sorting feature with 20+ commits:
-  - 2-tab system (Sort Labels + Crop Profiles)
-  - User-guided crop with aspect-ratio lock to label size
-  - Named crop profiles (save/load/delete/rename)
-  - Label sizes: 4x6, 4x4, 3x5, 2x1, A4, Custom
-  - Invoice cropping: freeform second crop, A4 output, proportional scaling
-  - Edit profiles (pencil icon) + inline rename (click name in table)
-  - Fixed: CDN worker failure, dropzone re-firing, canvas shift, aspect ratio distortion
-  - Platform-agnostic text (removed Flipkart-specific wording)
-- Demo passed successfully mid-session
+- Built combo SKU mapping UI — platform SKUs can now be mapped to combos from the Combos tab
+- Lowered combo minimum from 2 to 1 component (enables volume packs like "Soap 3-Pack" = 1 product x3)
+- Added "Add Mapping" button to Products tab for unmapped SKUs (was just a static badge before)
+- Added "+ Add" link for already-mapped SKUs to add additional channel mappings
+- Fixed duplicate constraint error: API now reassigns existing mapping when platform SKU already mapped elsewhere
+- Edit dialog supports both "add" (POST) and "edit" (PATCH) modes
 
-**Commits:** `5c2d5d8` through `457263c` (20+ commits)
-**Deployed:** Yes, many times throughout session
+**Commits:** `ff2d3a4` through `842a548` (3 commits)
+**Deployed:** Yes, 3 times throughout session
 
 ## What's Next
 1. **Move crop profiles to DB** — currently localStorage only

@@ -87,6 +87,17 @@ shrinkage_rate  NUMERIC(5,4)  DEFAULT 0.02   -- per-SKU shrinkage (2% default)
 delivery_rate   NUMERIC(5,4)  DEFAULT 1.0    -- historical delivered÷dispatched rate
 ```
 
+### combo_products + combo_product_components — Combo/Bundle SKUs
+- `combo_products`: id, tenant_id, name, is_archived
+- `combo_product_components`: combo_product_id, master_sku_id, quantity
+- Minimum 1 component (supports volume packs like "Soap 3-Pack" = 1 product x 3 qty)
+- Platform SKUs map to combos via `sku_mappings.combo_product_id` (mutually exclusive with `master_sku_id`)
+
+### sku_mappings — Unique constraint & reassignment
+- Unique constraint: `(tenant_id, platform, platform_sku)`
+- POST API auto-reassigns: if platform SKU already exists, updates the existing mapping instead of failing
+- Either `master_sku_id` OR `combo_product_id` is set, never both
+
 ---
 
 ## 📁 Key File Map
@@ -131,6 +142,9 @@ delivery_rate   NUMERIC(5,4)  DEFAULT 1.0    -- historical delivered÷dispatched
 | Label SKU resolution API | `src/app/api/labels/resolve-skus/route.ts` |
 | Label order ingestion API | `src/app/api/labels/ingest/route.ts` |
 | PDF.js worker (local, not CDN) | `public/pdf.worker.min.mjs` |
+| Combos tab (UI) | `src/components/catalog/CombosTab.tsx` |
+| Combos API | `src/app/api/catalog/combos/route.ts` |
+| SKU mappings API | `src/app/api/catalog/sku-mappings/route.ts` |
 | Vision & roadmap doc | `docs/superpowers/specs/2026-03-23-fktool-vision-and-roadmap.md` |
 
 ---
