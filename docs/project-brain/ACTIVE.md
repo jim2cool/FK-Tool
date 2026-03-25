@@ -6,7 +6,7 @@
 ---
 
 ## Current Focus
-**Combo/bundle SKU support shipped.** Users can create combos (multi-product bundles + single-product volume packs), map platform SKUs to them, and label sorting resolves combos into component products. Next: continue mapping all unmapped combo SKUs on live site, then move to next roadmap item.
+**Combo/bundle SKU support shipped. Crop profiles DB migration started.** The `crop_profiles` table exists in Supabase but API + UI swap not done yet. Next session: build CRUD API, replace localStorage reads/writes with API calls.
 
 ## Last Session (2026-03-25)
 **What happened:**
@@ -16,12 +16,13 @@
 - Added "+ Add" link for already-mapped SKUs to add additional channel mappings
 - Fixed duplicate constraint error: API now reassigns existing mapping when platform SKU already mapped elsewhere
 - Edit dialog supports both "add" (POST) and "edit" (PATCH) modes
+- Created `crop_profiles` table in Supabase (empty, API not built yet)
 
-**Commits:** `ff2d3a4` through `842a548` (3 commits)
+**Commits:** `ff2d3a4` through `d022d05` (4 commits)
 **Deployed:** Yes, 3 times throughout session
 
 ## What's Next
-1. **Move crop profiles to DB** — currently localStorage only
+1. **Finish crop profiles → DB migration** — table exists, need: CRUD API (`/api/labels/crop-profiles`), replace `loadProfiles()`/`saveProfiles()` in `LabelCropSelector.tsx` + `labels/page.tsx` with fetch calls
 2. **P&L per SKU** — settlement CSV import, match to orders, true profit calculation
 3. **Inventory Pipeline** — returns grading, live inventory, claims management
 
