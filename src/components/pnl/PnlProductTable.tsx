@@ -35,7 +35,7 @@ const COLUMNS: { key: SortKey; label: string; tooltip?: string }[] = [
   { key: 'total_cogs', label: 'COGS' },
   { key: 'platform_fees', label: 'Platform Fees' },
   { key: 'logistics_fees', label: 'Logistics' },
-  { key: 'true_profit', label: 'True Profit' },
+  { key: 'true_profit', label: 'Contribution' },
   { key: 'margin_pct', label: 'Margin %' },
   {
     key: 'expected_profit_per_dispatch',

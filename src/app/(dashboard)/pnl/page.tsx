@@ -269,7 +269,7 @@ export default function PnlPage() {
           <SummaryCard title="Platform Fees" value={fmt(Math.abs(summary.total_platform_fees))} icon={DollarSign} delta={mom?.platform_fees_pct} />
           <SummaryCard title="Logistics" value={fmt(Math.abs(summary.total_logistics))} icon={DollarSign} delta={mom?.logistics_pct} />
           <SummaryCard
-            title="True Profit"
+            title="Contribution Margin"
             value={fmt(summary.total_true_profit)}
             icon={summary.total_true_profit >= 0 ? TrendingUp : TrendingDown}
             color={summary.total_true_profit >= 0 ? 'text-green-600' : 'text-red-600'}

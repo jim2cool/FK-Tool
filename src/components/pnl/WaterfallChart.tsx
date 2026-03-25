@@ -91,9 +91,9 @@ function buildEntries(data: WaterfallData): WaterfallEntry[] {
     running += data.benefits
   }
 
-  // True Profit: starts at 0
+  // Contribution Margin: starts at 0
   entries.push({
-    name: 'True Profit',
+    name: 'Contribution',
     base: data.true_profit >= 0 ? 0 : data.true_profit,
     value: Math.abs(data.true_profit),
     color: data.true_profit >= 0 ? GREEN : RED,
