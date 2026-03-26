@@ -1,7 +1,7 @@
 'use client'
 import Link from 'next/link'
 import { usePathname } from 'next/navigation'
-import { LayoutDashboard, Package, ShoppingCart, Receipt, Box, Tags, Calculator, Upload, BarChart3, Settings, ClipboardList } from 'lucide-react'
+import { LayoutDashboard, Package, ShoppingCart, Receipt, Box, Tags, Calculator, Upload, BarChart3, Settings, ClipboardList, Truck, RotateCcw } from 'lucide-react'
 import { cn } from '@/lib/utils'
 
 type NavEntry =
@@ -11,7 +11,9 @@ type NavEntry =
 const navItems: NavEntry[] = [
   { type: 'link', href: '/dashboard', label: 'Dashboard', icon: LayoutDashboard },
   { type: 'link', href: '/pnl', label: 'Profit & Loss', icon: BarChart3 },
-  { type: 'link', href: '/orders-view', label: 'Orders & Returns', icon: ClipboardList },
+  { type: 'link', href: '/orders-view', label: 'Orders', icon: ClipboardList },
+  { type: 'link', href: '/dispatches', label: 'Dispatches', icon: Truck },
+  { type: 'link', href: '/returns', label: 'Returns & Claims', icon: RotateCcw },
   { type: 'link', href: '/labels', label: 'Labels', icon: Tags },
   { type: 'separator' },
   { type: 'link', href: '/catalog', label: 'Master Catalog', icon: Package },
