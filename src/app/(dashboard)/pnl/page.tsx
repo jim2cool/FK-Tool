@@ -3,6 +3,7 @@
 import { useEffect, useState, useCallback } from 'react'
 import { toast } from 'sonner'
 import { Upload, Settings2, Info, TrendingUp, TrendingDown, DollarSign, Package, Landmark } from 'lucide-react'
+import { InfoTooltip } from '@/components/ui/info-tooltip'
 import { Button } from '@/components/ui/button'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { PnlProductTable } from '@/components/pnl/PnlProductTable'
@@ -66,7 +67,7 @@ function MarginDeltaBadge({ value }: { value: number | null | undefined }) {
 }
 
 function SummaryCard({
-  title, value, icon: Icon, color, delta, deltaType,
+  title, value, icon: Icon, color, delta, deltaType, tooltip,
 }: {
   title: string
   value: string
@@ -74,12 +75,14 @@ function SummaryCard({
   color?: string
   delta?: number | null
   deltaType?: 'pct' | 'margin'
+  tooltip?: string
 }) {
   return (
     <div className="rounded-lg border bg-card p-4">
       <div className="flex items-center gap-2 text-sm text-muted-foreground">
         <Icon className={`h-4 w-4 ${color ?? ''}`} />
         {title}
+        {tooltip && <InfoTooltip content={tooltip} />}
       </div>
       <div className={`mt-1 text-2xl font-bold ${color ?? ''}`}>{value}</div>
       <div className="mt-0.5">
@@ -272,16 +275,17 @@ export default function PnlPage() {
       {/* Summary cards — ABOVE tabs, always visible */}
       {!loading && hasData && summary && (
         <div className="grid grid-cols-2 gap-4 sm:grid-cols-3 lg:grid-cols-6">
-          <SummaryCard title="Revenue" value={fmt(summary.total_revenue)} icon={DollarSign} delta={mom?.revenue_pct} />
-          <SummaryCard title="COGS" value={fmt(summary.total_cogs)} icon={Package} delta={mom?.cogs_pct} />
-          <SummaryCard title="Platform Fees" value={fmt(Math.abs(summary.total_platform_fees))} icon={DollarSign} delta={mom?.platform_fees_pct} />
-          <SummaryCard title="Logistics" value={fmt(Math.abs(summary.total_logistics))} icon={DollarSign} delta={mom?.logistics_pct} />
+          <SummaryCard title="Revenue" value={fmt(summary.total_revenue)} icon={DollarSign} delta={mom?.revenue_pct} tooltip="Total sales value (net of cancellations) for the selected period" />
+          <SummaryCard title="COGS" value={fmt(summary.total_cogs)} icon={Package} delta={mom?.cogs_pct} tooltip="Cost of Goods Sold — what you paid to buy/produce these products (purchase price + freight + packaging + shrinkage)" />
+          <SummaryCard title="Platform Fees" value={fmt(Math.abs(summary.total_platform_fees))} icon={DollarSign} delta={mom?.platform_fees_pct} tooltip="Commission, collection fees, and fixed fees charged by the marketplace" />
+          <SummaryCard title="Logistics" value={fmt(Math.abs(summary.total_logistics))} icon={DollarSign} delta={mom?.logistics_pct} tooltip="Shipping costs — pick & pack, forward delivery, and reverse shipping for returns" />
           <SummaryCard
             title="Contribution Margin"
             value={fmt(summary.total_true_profit)}
             icon={summary.total_true_profit >= 0 ? TrendingUp : TrendingDown}
             color={summary.total_true_profit >= 0 ? 'text-green-600' : 'text-red-600'}
             delta={mom?.true_profit_pct}
+            tooltip="Your profit after deducting all variable costs (COGS + fees + logistics) from revenue. This is what you keep before fixed costs like rent and salaries"
           />
           <SummaryCard
             title="Overall Margin"
@@ -290,6 +294,7 @@ export default function PnlPage() {
             color={summary.overall_margin_pct > 20 ? 'text-green-600' : summary.overall_margin_pct >= 0 ? 'text-yellow-600' : 'text-red-600'}
             delta={mom?.margin_delta}
             deltaType="margin"
+            tooltip="Contribution Margin as a percentage of Revenue. Higher is better. Above 20% is healthy, below 0% means you're losing money"
           />
           {dashboardData && dashboardData.overheads_total > 0 && (
             <SummaryCard
@@ -298,6 +303,7 @@ export default function PnlPage() {
               icon={dashboardData.operating_profit >= 0 ? TrendingUp : TrendingDown}
               color={dashboardData.operating_profit >= 0 ? 'text-green-600' : 'text-red-600'}
               delta={mom?.operating_profit_pct}
+              tooltip="Contribution Margin minus your monthly fixed costs (rent, salaries, software). This is your actual profit or loss for the month"
             />
           )}
         </div>

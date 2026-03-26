@@ -1,6 +1,7 @@
 'use client'
 
 import { X } from 'lucide-react'
+import { InfoTooltip } from '@/components/ui/info-tooltip'
 import type { PnlInsight } from '@/lib/pnl/insights'
 
 interface Props {
@@ -72,6 +73,7 @@ export function ActionDashboard({ insights, onDismiss, onSwitchTab }: Props) {
       <div className="flex items-center justify-between mb-3">
         <h3 className="text-sm font-semibold text-foreground">
           Actions for You ({insights.length} item{insights.length !== 1 ? 's' : ''})
+          <InfoTooltip content="Top priority items that need your attention, sorted by financial impact. Click to see details" />
         </h3>
         {hasMore && (
           <button

@@ -9,6 +9,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs'
 import { toast } from 'sonner'
 import { Plus, Pencil, Trash2 } from 'lucide-react'
+import { InfoTooltip } from '@/components/ui/info-tooltip'
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -295,7 +296,7 @@ export default function PackagingPage() {
                 <TableRow>
                   <TableHead>Name</TableHead>
                   <TableHead>Unit</TableHead>
-                  <TableHead className="text-right">Unit Cost (&#x20b9;)</TableHead>
+                  <TableHead className="text-right"><span className="inline-flex items-center gap-1">Unit Cost (&#x20b9;)<InfoTooltip content="Cost per single unit of this packaging material (per piece, per meter, etc.)" /></span></TableHead>
                   <TableHead />
                 </TableRow>
               </TableHeader>
@@ -361,7 +362,7 @@ export default function PackagingPage() {
                   <TableHead>SKU</TableHead>
                   <TableHead>Material</TableHead>
                   <TableHead>Unit</TableHead>
-                  <TableHead className="text-right">Qty per Dispatch</TableHead>
+                  <TableHead className="text-right"><span className="inline-flex items-center gap-1">Qty per Dispatch<InfoTooltip content="How many units of this packaging material are used each time you ship one order of this product" /></span></TableHead>
                   <TableHead />
                 </TableRow>
               </TableHeader>

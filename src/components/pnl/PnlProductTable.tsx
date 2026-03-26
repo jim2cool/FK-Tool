@@ -31,9 +31,9 @@ type SortKey =
 
 const COLUMNS: { key: SortKey; label: string; tooltip?: string; productOnly?: boolean }[] = [
   { key: 'group_name', label: 'Product Name' },
-  { key: 'gross_orders', label: 'Gross Orders' },
-  { key: 'return_rate', label: 'Return Rate' },
-  { key: 'net_orders', label: 'Net Orders' },
+  { key: 'gross_orders', label: 'Gross Orders', tooltip: 'Total orders placed (before returns and cancellations)' },
+  { key: 'return_rate', label: 'Return Rate', tooltip: 'Percentage of orders that were returned (RTO + RVP). Below 30% is normal, above 40% is concerning' },
+  { key: 'net_orders', label: 'Net Orders', tooltip: 'Orders that were actually delivered and kept by customers' },
   { key: 'revenue', label: 'Revenue' },
   { key: 'total_cogs', label: 'COGS' },
   { key: 'platform_fees', label: 'Platform Fees' },
@@ -44,14 +44,14 @@ const COLUMNS: { key: SortKey; label: string; tooltip?: string; productOnly?: bo
     key: 'expected_profit_per_dispatch',
     label: 'Exp. Profit/Dispatch',
     tooltip:
-      'Expected profit per dispatched unit, adjusted for return rate. Accounts for the cost of returns on each dispatch.',
+      'Expected profit each time you dispatch one unit, accounting for the probability of returns',
     productOnly: true,
   },
   {
     key: 'recovery_rounds',
     label: 'Recovery Rounds',
     tooltip:
-      'All-in cost per unit divided by net settlement per unit. Lower is better — indicates how many units you need to sell to recover your investment.',
+      'How many times you need to sell this product to recover your total investment. Below 2 is healthy',
     productOnly: true,
   },
   {
@@ -396,7 +396,7 @@ export function PnlProductTable({ productRows, channelRows, accountRows, recover
                               <table className="w-full text-sm">
                                 <tbody>
                                   <tr className="border-b border-muted">
-                                    <td className="py-1 text-muted-foreground">RTO (Logistics Returns)</td>
+                                    <td className="py-1 text-muted-foreground">RTO (Logistics Returns)<InfoTooltip content="Return to Origin — orders that couldn't be delivered (wrong address, customer unavailable, refused)" /></td>
                                     <td className="py-1 text-right tabular-nums">
                                       {pct(recovery.rto_rate * 100)}
                                     </td>
@@ -407,7 +407,7 @@ export function PnlProductTable({ productRows, channelRows, accountRows, recover
                                     </td>
                                   </tr>
                                   <tr className="border-b border-muted">
-                                    <td className="py-1 text-muted-foreground">RVP (Customer Returns)</td>
+                                    <td className="py-1 text-muted-foreground">RVP (Customer Returns)<InfoTooltip content="Customer Returns — orders the customer received but sent back (didn't like it, wrong product, quality issue)" /></td>
                                     <td className="py-1 text-right tabular-nums">
                                       {pct(recovery.rvp_rate * 100)}
                                     </td>
@@ -472,6 +472,7 @@ export function PnlProductTable({ productRows, channelRows, accountRows, recover
                                 <div className="mt-2">
                                   <VerdictBadge verdict={recovery.verdict} />
                                   <span className="ml-2 text-xs text-muted-foreground">{recovery.verdict_label}</span>
+                                  <InfoTooltip content="Auto-computed recommendation based on margin, return rate, and capital recovery speed" />
                                 </div>
                               )}
                             </div>

@@ -2,6 +2,7 @@
 
 import type { WaterfallData, TopBottomSku } from '@/lib/pnl/waterfall'
 import WaterfallChart from './WaterfallChart'
+import { InfoTooltip } from '@/components/ui/info-tooltip'
 
 interface Props {
   waterfall: WaterfallData
@@ -43,6 +44,7 @@ export default function PnlOverviewTab({
       <div className="rounded-lg border bg-card p-4">
         <h3 className="text-sm font-medium text-muted-foreground mb-2">
           Revenue to Profit Flow
+          <InfoTooltip content="Shows how your revenue breaks down into costs and profit. Green bars add value, red bars are costs" />
         </h3>
         <WaterfallChart data={waterfall} />
       </div>

@@ -22,6 +22,7 @@ import {
   PopoverContent,
   PopoverTrigger,
 } from '@/components/ui/popover'
+import { InfoTooltip } from '@/components/ui/info-tooltip'
 
 interface CogsBreakdown {
   sku_id: string
@@ -193,14 +194,14 @@ export default function CogsPage() {
             <TableRow>
               <TableHead className="w-8" />
               <TableHead>Product / SKU</TableHead>
-              <TableHead className="text-right">Lots</TableHead>
+              <TableHead className="text-right"><span className="inline-flex items-center gap-1">Lots<InfoTooltip content="Number of separate purchase batches for this product" /></span></TableHead>
               <TableHead className="text-right">Units</TableHead>
-              <TableHead className="text-right">WAC Base</TableHead>
-              <TableHead className="text-right">Freight/unit</TableHead>
-              <TableHead className="text-right">Purchase COGS</TableHead>
-              <TableHead className="text-right">Dispatch COGS</TableHead>
-              <TableHead className="text-right">Shrinkage</TableHead>
-              <TableHead className="text-right font-semibold">Full COGS/unit</TableHead>
+              <TableHead className="text-right"><span className="inline-flex items-center gap-1">WAC Base<InfoTooltip content="Weighted Average Cost — average purchase price across all batches, excluding GST" /></span></TableHead>
+              <TableHead className="text-right"><span className="inline-flex items-center gap-1">Freight/unit<InfoTooltip content="Inbound shipping cost allocated to each unit based on invoice value proportion" /></span></TableHead>
+              <TableHead className="text-right"><span className="inline-flex items-center gap-1">Purchase COGS<InfoTooltip content="WAC Base + Freight per unit — what each unit cost you to get into your warehouse" /></span></TableHead>
+              <TableHead className="text-right"><span className="inline-flex items-center gap-1">Dispatch COGS<InfoTooltip content="Packaging material cost per dispatch divided by delivery rate" /></span></TableHead>
+              <TableHead className="text-right"><span className="inline-flex items-center gap-1">Shrinkage<InfoTooltip content="Estimated loss from damage, theft, or expiry. Default 2% of Purchase COGS" /></span></TableHead>
+              <TableHead className="text-right font-semibold"><span className="inline-flex items-center gap-1">Full COGS/unit<InfoTooltip content="Total cost per delivered unit = Purchase COGS + Dispatch COGS + Shrinkage" /></span></TableHead>
             </TableRow>
           </TableHeader>
           <TableBody>
@@ -287,7 +288,7 @@ export default function CogsPage() {
                                   <span>₹{fmt(row.packaging_cost_per_dispatch)}</span>
                                 </div>
                                 <div className="flex justify-between items-center">
-                                  <span className="text-muted-foreground">Delivery rate</span>
+                                  <span className="text-muted-foreground">Delivery rate<InfoTooltip content="What percentage of dispatched items actually get delivered. 1.0 = 100%. Lower means more losses in transit" /></span>
                                   <Popover
                                     open={!!popoverOpen[deliveryPopKey]}
                                     onOpenChange={(open: boolean) => {
@@ -324,7 +325,7 @@ export default function CogsPage() {
                               <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground pt-1">Shrinkage</p>
                               <div className="space-y-1.5 text-sm">
                                 <div className="flex justify-between items-center">
-                                  <span className="text-muted-foreground">Shrinkage rate</span>
+                                  <span className="text-muted-foreground">Shrinkage rate<InfoTooltip content="What percentage of purchased stock you expect to lose to damage, theft, or expiry" /></span>
                                   <Popover
                                     open={!!popoverOpen[shrinkagePopKey]}
                                     onOpenChange={(open: boolean) => {

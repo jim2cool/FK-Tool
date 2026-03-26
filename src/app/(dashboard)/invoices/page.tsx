@@ -10,6 +10,7 @@ import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs'
 import { Badge } from '@/components/ui/badge'
 import { toast } from 'sonner'
 import { Plus, Pencil, Trash2 } from 'lucide-react'
+import { InfoTooltip } from '@/components/ui/info-tooltip'
 import { format, parseISO } from 'date-fns'
 
 // ── Types ─────────────────────────────────────────────────────────────────────────────────
@@ -384,8 +385,8 @@ export default function InvoicesPage() {
                   <TableHead>Vendor</TableHead>
                   <TableHead className="text-right">Amount (₹)</TableHead>
                   <TableHead>GST Rate</TableHead>
-                  <TableHead>Tax Paid</TableHead>
-                  <TableHead className="text-right">GST Amount (₹)</TableHead>
+                  <TableHead><span className="inline-flex items-center gap-1">Tax Paid<InfoTooltip content="Whether GST was charged on this invoice. 'Paid' means you have input credit available. 'Not Charged' (kaccha bill) means no GST credit" /></span></TableHead>
+                  <TableHead className="text-right"><span className="inline-flex items-center gap-1">GST Amount (₹)<InfoTooltip content="The GST component of this invoice. If tax was paid, this is claimable as input credit" /></span></TableHead>
                   <TableHead />
                 </TableRow>
               </TableHeader>
@@ -463,8 +464,8 @@ export default function InvoicesPage() {
                   <TableHead className="text-right">Unit Cost (₹)</TableHead>
                   <TableHead className="text-right">Total (₹)</TableHead>
                   <TableHead>GST Rate</TableHead>
-                  <TableHead>Tax Paid</TableHead>
-                  <TableHead className="text-right">GST Amount (₹)</TableHead>
+                  <TableHead><span className="inline-flex items-center gap-1">Tax Paid<InfoTooltip content="Whether GST was charged on this invoice. 'Paid' means you have input credit available. 'Not Charged' (kaccha bill) means no GST credit" /></span></TableHead>
+                  <TableHead className="text-right"><span className="inline-flex items-center gap-1">GST Amount (₹)<InfoTooltip content="The GST component of this invoice. If tax was paid, this is claimable as input credit" /></span></TableHead>
                   <TableHead />
                 </TableRow>
               </TableHeader>

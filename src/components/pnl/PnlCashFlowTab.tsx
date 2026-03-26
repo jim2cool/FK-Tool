@@ -1,6 +1,7 @@
 'use client'
 
 import SettlementChart from './SettlementChart'
+import { InfoTooltip } from '@/components/ui/info-tooltip'
 
 interface Props {
   cashflow: {
@@ -36,19 +37,19 @@ export default function PnlCashFlowTab({ cashflow }: Props) {
       {/* Summary Cards */}
       <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
         <div className="rounded-lg border bg-card p-4">
-          <p className="text-sm text-muted-foreground">Total Settled</p>
+          <p className="text-sm text-muted-foreground">Total Settled<InfoTooltip content="Amount Flipkart has actually paid into your bank account" /></p>
           <p className="text-2xl font-semibold text-green-600">
             {fmt(cashflow.settled)}
           </p>
         </div>
         <div className="rounded-lg border bg-card p-4">
-          <p className="text-sm text-muted-foreground">Total Pending</p>
+          <p className="text-sm text-muted-foreground">Total Pending<InfoTooltip content="Amount Flipkart still owes you — not yet deposited" /></p>
           <p className="text-2xl font-semibold text-orange-600">
             {fmt(cashflow.pending)}
           </p>
         </div>
         <div className="rounded-lg border bg-card p-4">
-          <p className="text-sm text-muted-foreground">Settlement Rate</p>
+          <p className="text-sm text-muted-foreground">Settlement Rate<InfoTooltip content="Percentage of total expected payments that have been settled" /></p>
           <p className="text-2xl font-semibold">
             {cashflow.settlement_rate}%
           </p>
