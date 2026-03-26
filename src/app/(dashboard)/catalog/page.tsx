@@ -108,6 +108,7 @@ export default function CatalogPage() {
   // Wipe data
   const [wipeConfirmOpen, setWipeConfirmOpen] = useState(false)
   const [wiping, setWiping] = useState(false)
+  const [wipeConfirmText, setWipeConfirmText] = useState('')
 
   async function handleWipe() {
     setWiping(true)
@@ -843,21 +844,32 @@ export default function CatalogPage() {
         />
 
         {/* Wipe Confirm Dialog */}
-        <Dialog open={wipeConfirmOpen} onOpenChange={setWipeConfirmOpen}>
+        <Dialog open={wipeConfirmOpen} onOpenChange={(o) => { setWipeConfirmOpen(o); if (!o) setWipeConfirmText('') }}>
           <DialogContent>
             <DialogHeader>
               <DialogTitle className="text-red-600">Wipe all catalog data?</DialogTitle>
             </DialogHeader>
             <p className="text-sm text-muted-foreground py-2">
               This will permanently delete all master SKUs and channel mappings for this account.
-              Warehouse stock data will not be affected. This cannot be undone.
+              Warehouse stock data will not be affected. <strong>This cannot be undone.</strong>
             </p>
+            <div className="py-2">
+              <label className="text-sm font-medium text-red-600">Type WIPE to confirm:</label>
+              <input
+                type="text"
+                value={wipeConfirmText}
+                onChange={e => setWipeConfirmText(e.target.value)}
+                placeholder="Type WIPE here"
+                className="mt-1 w-full rounded-md border border-red-300 bg-red-50 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-red-500"
+                autoComplete="off"
+              />
+            </div>
             <DialogFooter>
-              <Button variant="outline" onClick={() => setWipeConfirmOpen(false)}>Cancel</Button>
+              <Button variant="outline" onClick={() => { setWipeConfirmOpen(false); setWipeConfirmText('') }}>Cancel</Button>
               <Button
                 variant="destructive"
                 onClick={handleWipe}
-                disabled={wiping}
+                disabled={wiping || wipeConfirmText !== 'WIPE'}
               >
                 {wiping ? 'Wiping…' : 'Yes, wipe everything'}
               </Button>
