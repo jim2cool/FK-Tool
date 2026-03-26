@@ -34,6 +34,24 @@ export async function importPurchasesCsv(
     warehouseMap.set(w.name.toLowerCase(), w.id)
   }
 
+  // Pre-load ALL existing master_skus for this tenant into caches
+  // This prevents N+1 queries AND the maybeSingle() duplicate bug
+  const { data: existingSkus } = await supabase
+    .from('master_skus')
+    .select('id, name, parent_id')
+    .eq('tenant_id', tenantId)
+    .eq('is_archived', false)
+
+  const skuCache = new Map<string, string>() // name_lc → id (flat/parent SKUs)
+  const variantCache = new Map<string, string>() // "parentId::name_lc" → id
+  for (const s of existingSkus ?? []) {
+    if (s.parent_id === null) {
+      skuCache.set(s.name.toLowerCase(), s.id)
+    } else {
+      variantCache.set(`${s.parent_id}::${s.name.toLowerCase()}`, s.id)
+    }
+  }
+
   const rows = parsePurchasesCsv(csvText)
   let created = 0
   let skipped = 0
@@ -59,22 +77,16 @@ export async function importPurchasesCsv(
       continue
     }
 
-    // Resolve master_sku + variant
+    // Resolve master_sku + variant using caches
     let masterSkuId: string
 
     if (row.variant) {
       // Has variant: find/create parent, then find/create variant
-      const { data: existingParent } = await supabase
-        .from('master_skus')
-        .select('id')
-        .eq('tenant_id', tenantId)
-        .eq('name', row.master)
-        .is('parent_id', null)
-        .maybeSingle()
-
       let parentId: string
-      if (existingParent) {
-        parentId = existingParent.id
+      const cachedParentId = skuCache.get(row.master.toLowerCase())
+
+      if (cachedParentId) {
+        parentId = cachedParentId
       } else {
         const { data: newParent, error: parentErr } = await supabase
           .from('master_skus')
@@ -87,18 +99,14 @@ export async function importPurchasesCsv(
           continue
         }
         parentId = newParent.id
+        skuCache.set(row.master.toLowerCase(), parentId)
       }
 
-      const { data: existingVariant } = await supabase
-        .from('master_skus')
-        .select('id')
-        .eq('tenant_id', tenantId)
-        .eq('name', row.variant)
-        .eq('parent_id', parentId)
-        .maybeSingle()
+      const variantKey = `${parentId}::${row.variant!.toLowerCase()}`
+      const cachedVariantId = variantCache.get(variantKey)
 
-      if (existingVariant) {
-        masterSkuId = existingVariant.id
+      if (cachedVariantId) {
+        masterSkuId = cachedVariantId
       } else {
         const { data: newVariant, error: variantErr } = await supabase
           .from('master_skus')
@@ -110,20 +118,15 @@ export async function importPurchasesCsv(
           errors.push({ row: row.rowIndex, reason: `Failed to create variant "${row.variant}": ${variantErr?.message ?? 'unknown'}` })
           continue
         }
+        variantCache.set(variantKey, newVariant.id)
         masterSkuId = newVariant.id
       }
     } else {
-      // Flat SKU
-      const { data: existingMaster } = await supabase
-        .from('master_skus')
-        .select('id')
-        .eq('tenant_id', tenantId)
-        .eq('name', row.master)
-        .is('parent_id', null)
-        .maybeSingle()
+      // Flat SKU — check cache first
+      const cachedId = skuCache.get(row.master.toLowerCase())
 
-      if (existingMaster) {
-        masterSkuId = existingMaster.id
+      if (cachedId) {
+        masterSkuId = cachedId
       } else {
         const { data: newMaster, error: masterErr } = await supabase
           .from('master_skus')
@@ -135,6 +138,7 @@ export async function importPurchasesCsv(
           errors.push({ row: row.rowIndex, reason: `Failed to create product "${row.master}": ${masterErr?.message ?? 'unknown'}` })
           continue
         }
+        skuCache.set(row.master.toLowerCase(), newMaster.id)
         masterSkuId = newMaster.id
       }
     }
