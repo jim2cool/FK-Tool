@@ -7,6 +7,7 @@ import { InfoTooltip } from '@/components/ui/info-tooltip'
 import { Button } from '@/components/ui/button'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { PnlProductTable } from '@/components/pnl/PnlProductTable'
+import { PnlComparisonTable } from '@/components/pnl/PnlComparisonTable'
 import PnlOverviewTab from '@/components/pnl/PnlOverviewTab'
 import PnlCashFlowTab from '@/components/pnl/PnlCashFlowTab'
 import { PnlInsightsTab } from '@/components/pnl/PnlInsightsTab'
@@ -105,6 +106,13 @@ export default function PnlPage() {
   const [loading, setLoading] = useState(true)
   const [dismissingKey, setDismissingKey] = useState<string | null>(null)
 
+  const [viewMode, setViewMode] = useState<'current' | 'compare'>('current')
+  const [comparisonData, setComparisonData] = useState<Array<{
+    month: string
+    rows: Array<{ group_key: string; group_name: string; revenue: number; margin_pct: number | null; return_rate: number; net_orders: number }>
+  }> | null>(null)
+  const [comparisonLoading, setComparisonLoading] = useState(false)
+
   const [showImport, setShowImport] = useState(false)
   const [showRules, setShowRules] = useState(false)
   const [showOverheads, setShowOverheads] = useState(false)
@@ -162,6 +170,26 @@ export default function PnlPage() {
   }, [fetchPnl, fetchDashboard])
 
   useEffect(() => loadAll(), [loadAll])
+
+  useEffect(() => {
+    if (viewMode !== 'compare') return
+    let cancelled = false
+    setComparisonLoading(true)
+    const params = new URLSearchParams({ months: '3' })
+    if (selectedAccount !== 'all') params.set('accountIds', selectedAccount)
+    fetch(`/api/pnl/comparison?${params}`)
+      .then(r => r.ok ? r.json() : null)
+      .then(data => {
+        if (!cancelled && data) setComparisonData(data.months)
+      })
+      .catch(() => {
+        if (!cancelled) toast.error('Failed to load comparison data')
+      })
+      .finally(() => {
+        if (!cancelled) setComparisonLoading(false)
+      })
+    return () => { cancelled = true }
+  }, [viewMode, selectedAccount])
 
   const summary = productData?.summary
   const hasData = productData && productData.rows.length > 0
@@ -353,15 +381,48 @@ export default function PnlPage() {
           </TabsContent>
 
           <TabsContent value="products">
-            <PnlProductTable
-              productRows={productData?.rows ?? []}
-              channelRows={channelData?.rows ?? []}
-              accountRows={accountData?.rows ?? []}
-              recoveryMap={productData?.recoveryMap
-                ? new Map(Object.entries(productData.recoveryMap) as [string, RecoveryMetrics][])
-                : undefined
-              }
-            />
+            <div className="flex items-center gap-1 mb-4">
+              <button
+                onClick={() => setViewMode('current')}
+                className={`px-3 py-1.5 text-sm font-medium rounded-md border transition-colors ${
+                  viewMode === 'current'
+                    ? 'bg-primary text-primary-foreground border-primary'
+                    : 'bg-background text-muted-foreground border-input hover:bg-muted'
+                }`}
+              >
+                Current Month
+              </button>
+              <button
+                onClick={() => setViewMode('compare')}
+                className={`px-3 py-1.5 text-sm font-medium rounded-md border transition-colors ${
+                  viewMode === 'compare'
+                    ? 'bg-primary text-primary-foreground border-primary'
+                    : 'bg-background text-muted-foreground border-input hover:bg-muted'
+                }`}
+              >
+                Compare (3mo)
+              </button>
+            </div>
+
+            {viewMode === 'current' && (
+              <PnlProductTable
+                productRows={productData?.rows ?? []}
+                channelRows={channelData?.rows ?? []}
+                accountRows={accountData?.rows ?? []}
+                recoveryMap={productData?.recoveryMap
+                  ? new Map(Object.entries(productData.recoveryMap) as [string, RecoveryMetrics][])
+                  : undefined
+                }
+              />
+            )}
+
+            {viewMode === 'compare' && comparisonLoading && (
+              <div className="py-12 text-center text-muted-foreground">Loading comparison data...</div>
+            )}
+
+            {viewMode === 'compare' && !comparisonLoading && comparisonData && (
+              <PnlComparisonTable months={comparisonData} />
+            )}
           </TabsContent>
 
           <TabsContent value="cashflow">
