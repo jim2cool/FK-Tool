@@ -189,6 +189,82 @@ Dashboard → Master Catalog → Purchases → Invoices → Packaging → Labels
 
 ---
 
+## ✅ Complete P&L System — Shipped (2026-03-26)
+
+### What it does
+Full P&L per SKU across Flipkart accounts with 4 report importers, contribution margin, operating profit, recovery metrics, and actionable insights.
+
+### 4-Tab P&L Page
+- **Overview** — Waterfall chart (Revenue → fees → COGS → Contribution Margin → Overheads → Operating Profit), top profitable/losing/high-return SKUs, break-even progress bar
+- **Products** — Sortable table with groupBy dropdown (Product/Channel/Account), expandable fee + COGS + return analysis, verdict badges (Star/Healthy/Watch/Reduce/Stop/Cash Trap), recovery rounds, RTO/RVP rates
+- **Cash Flow** — Settlement timeline chart, settled vs pending totals, pending orders list (top 100 by age)
+- **Insights** — 6 categories: money losers, return alerts, fee anomalies, cash traps, break-even gap, return pattern alerts. Dismissible to DB.
+
+### Import System (4 report types, Flipkart-only currently)
+- **Orders Report** → order lifecycle dates (dispatch, delivery, cancellation, return)
+- **Returns Report** → RTO/RVP type, return reasons, completion dates
+- **P&L Report** → fee breakdown (commission, collection, fixed, shipping, GST, TCS/TDS, rewards)
+- **Settlement Report** → bank settlement dates, NEFT IDs, actual amounts paid
+
+### Key components
+| Component | Purpose |
+|-----------|---------|
+| `PnlImportDialog.tsx` | 4-type import with platform selector, dedup, preview |
+| `PnlProductTable.tsx` | Consolidated table with groupBy, expandable rows, verdicts |
+| `WaterfallChart.tsx` | Recharts stacked bar waterfall (11 bars incl. overheads + op. profit) |
+| `ActionDashboard.tsx` | "What to Do Today" — top 5 insights above tabs |
+| `OverheadsDialog.tsx` | Monthly fixed cost entry (salary/rent/software/marketing/other) |
+| `BreakEvenBar.tsx` | Progress bar showing % of overheads covered |
+| `AnomalyRulesPanel.tsx` | User-configurable fee detection rules |
+
+### Key files
+| File | Purpose |
+|------|---------|
+| `src/lib/pnl/calculate.ts` | P&L engine — groups orders, computes margins |
+| `src/lib/pnl/waterfall.ts` | Waterfall + MoM deltas + top/bottom derivation |
+| `src/lib/pnl/insights.ts` | 6-category insight generation |
+| `src/lib/pnl/recovery.ts` | Recovery metrics + verdict computation |
+| `src/app/api/pnl/dashboard/route.ts` | Single API for overview + cashflow + insights |
+| `src/app/api/pnl/summary/route.ts` | P&L by product/channel/account |
+| `src/app/api/pnl/overheads/route.ts` | Monthly overheads CRUD |
+
+### DB tables
+- `orders` — 7,535 rows, full lifecycle columns (dispatch_date through settlement_date + neft_id)
+- `order_financials` — 2,121 rows, 20+ fee columns + anomaly_flags JSONB
+- `sku_financial_profiles` — per-SKU per-platform averages (auto-recomputed on import)
+- `pnl_anomaly_rules` — user-configurable rules with thresholds
+- `dismissed_insights` — persists insight dismissals
+- `monthly_overheads` — fixed costs by category and month
+
+### Performance optimizations (2026-03-26)
+- **10 DB indexes added** — orders(tenant_id, order_date), orders(tenant_id, master_sku_id, order_date), purchases(tenant_id, master_sku_id), sku_mappings(tenant_id, platform/account), and more
+- **COGS route fixed** — was calling `calculateCogs()` per SKU (N+1, 700+ queries). Now uses `calculateCogsBatch()` (6 queries total)
+- **Dashboard cashflow optimized** — split into focused timeline query + pending-only query instead of fetching all orders
+
+### Navigation reorder (2026-03-26)
+Sidebar now groups by usage frequency:
+```
+Dashboard (→ redirects to /pnl)
+Profit & Loss
+Labels
+─── separator ───
+Master Catalog
+Purchases
+Invoices
+Packaging
+COGS
+Import Data
+Settings
+```
+
+### InfoTooltips (2026-03-26)
+~40 tooltips added across all pages explaining every metric in plain English:
+- P&L summary cards, Products table columns, COGS page headers
+- Invoices GST terminology, Packaging qty per dispatch
+- Cash Flow tab, Action Dashboard, waterfall chart
+
+---
+
 ## ✅ COGS System — Complete
 
 All 4 phases shipped. Full COGS system is implemented and deployed.
