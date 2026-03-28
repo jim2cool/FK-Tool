@@ -74,9 +74,9 @@ const API_PAGE_MAP: Array<[string, string]> = [
   ['/api/cogs', 'cogs'],
   ['/api/imports', 'imports'],
   ['/api/warehouses', 'settings'],
-  ['/api/marketplace-accounts', 'settings'],
   ['/api/organizations', 'settings'],
   ['/api/team', 'settings'],
+  // /api/marketplace-accounts intentionally NOT mapped — it's reference data used by P&L, Labels, etc.
 ]
 
 /** Returns the page slug that owns an API route, or null if always allowed. */

@@ -2,9 +2,20 @@ import { NextRequest, NextResponse } from 'next/server'
 import { getUserProfile } from '@/lib/db/tenant'
 import { createAdminClient } from '@/lib/supabase/admin'
 import { createClient } from '@/lib/supabase/server'
+import { ALL_PAGES } from '@/lib/auth/page-access'
 
 function forbidden() {
   return NextResponse.json({ error: 'Forbidden — owner/admin only' }, { status: 403 })
+}
+
+function validatePages(pages: string[] | null): string | null {
+  if (pages === null) return null
+  for (const p of pages) {
+    if (!(ALL_PAGES as readonly string[]).includes(p)) {
+      return `Invalid page: "${p}"`
+    }
+  }
+  return null
 }
 
 // ── GET: List all members in the tenant ───────────────────────────────────────
@@ -49,6 +60,10 @@ export async function POST(req: NextRequest) {
     }
     if (role === 'owner') {
       return NextResponse.json({ error: 'Cannot create another owner' }, { status: 400 })
+    }
+    const pageErr = validatePages(allowed_pages)
+    if (pageErr) {
+      return NextResponse.json({ error: pageErr }, { status: 400 })
     }
 
     const admin = createAdminClient()
@@ -112,18 +127,27 @@ export async function PATCH(req: NextRequest) {
     if (role === 'owner') {
       return NextResponse.json({ error: 'Cannot set role to owner' }, { status: 400 })
     }
+    if (allowed_pages !== undefined) {
+      const pageErr = validatePages(allowed_pages)
+      if (pageErr) {
+        return NextResponse.json({ error: pageErr }, { status: 400 })
+      }
+    }
 
     const admin = createAdminClient()
 
-    // Verify target is in the same tenant
+    // Verify target is in the same tenant and check their role
     const { data: target } = await admin
       .from('user_profiles')
-      .select('tenant_id')
+      .select('tenant_id, role')
       .eq('id', user_id)
       .single()
 
     if (!target || target.tenant_id !== caller.tenantId) {
       return NextResponse.json({ error: 'User not found in your workspace' }, { status: 404 })
+    }
+    if (target.role === 'owner') {
+      return NextResponse.json({ error: 'Cannot modify an owner' }, { status: 400 })
     }
 
     const updates: Record<string, unknown> = {}

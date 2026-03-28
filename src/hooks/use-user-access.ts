@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useCallback } from 'react'
 import { hasPageAccess } from '@/lib/auth/page-access'
 import type { UserRole } from '@/types/database'
 
@@ -33,11 +33,16 @@ export function useUserAccess(): UserAccess {
     return () => { cancelled = true }
   }, [])
 
+  const canAccess = useCallback(
+    (page: string) => hasPageAccess(allowedPages, page),
+    [allowedPages]
+  )
+
   return {
     role,
     allowedPages,
     isOwner: role === 'owner',
-    canAccess: (page: string) => hasPageAccess(allowedPages, page),
+    canAccess,
     loading,
   }
 }

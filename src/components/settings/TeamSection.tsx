@@ -144,7 +144,7 @@ export function TeamSection() {
           email: addEmail,
           password: addPassword,
           role: addRole,
-          allowed_pages: addPages,
+          allowed_pages: addPreset === 'Full Access' ? null : addPages,
         }),
       })
       if (!res.ok) {
@@ -195,7 +195,7 @@ export function TeamSection() {
         body: JSON.stringify({
           user_id: editMember.id,
           role: editRole,
-          allowed_pages: editPages,
+          allowed_pages: editPreset === 'Full Access' ? null : editPages,
         }),
       })
       if (!res.ok) {
