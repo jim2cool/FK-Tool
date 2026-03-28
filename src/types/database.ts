@@ -34,6 +34,7 @@ export interface UserProfile {
   email: string
   role: UserRole
   organization_id: string | null
+  allowed_pages: string[] | null
   created_at: string
 }
 

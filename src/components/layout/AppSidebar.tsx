@@ -1,8 +1,10 @@
 'use client'
 import Link from 'next/link'
 import { usePathname } from 'next/navigation'
+import { useMemo } from 'react'
 import { LayoutDashboard, Package, ShoppingCart, Receipt, Box, Tags, Calculator, Upload, BarChart3, Settings, ClipboardList, Truck, RotateCcw } from 'lucide-react'
 import { cn } from '@/lib/utils'
+import { useUserAccess } from '@/hooks/use-user-access'
 
 type NavEntry =
   | { type: 'link'; href: string; label: string; icon: React.ComponentType<{ className?: string }> }
@@ -27,13 +29,33 @@ const navItems: NavEntry[] = [
 
 export function AppSidebar() {
   const pathname = usePathname()
+  const { canAccess, loading } = useUserAccess()
+
+  // Filter nav items by page access, then clean up stray separators
+  const visibleItems = useMemo(() => {
+    if (loading) return navItems // show all while loading (middleware protects)
+
+    const filtered = navItems.filter(item => {
+      if (item.type === 'separator') return true
+      const slug = item.href.slice(1) // strip leading /
+      return canAccess(slug)
+    })
+
+    // Remove leading, trailing, and consecutive separators
+    return filtered.filter((item, i, arr) => {
+      if (item.type !== 'separator') return true
+      if (i === 0 || i === arr.length - 1) return false
+      return arr[i - 1]?.type !== 'separator'
+    })
+  }, [canAccess, loading])
+
   return (
     <aside className="w-56 min-h-screen bg-sidebar border-r flex flex-col">
       <div className="px-4 py-5 border-b">
         <h1 className="font-bold text-lg tracking-tight">FK Tool</h1>
       </div>
       <nav className="flex-1 p-3 space-y-1">
-        {navItems.map((item, i) => {
+        {visibleItems.map((item, i) => {
           if (item.type === 'separator') {
             return <div key={`sep-${i}`} className="my-2 border-t border-border" />
           }

@@ -1,5 +1,6 @@
 import { createServerClient, type CookieOptions } from '@supabase/ssr'
 import { NextResponse, type NextRequest } from 'next/server'
+import { hasPageAccess, pageSlugFromPath, pageForApiRoute } from '@/lib/auth/page-access'
 
 export async function middleware(request: NextRequest) {
   let supabaseResponse = NextResponse.next({ request })
@@ -23,9 +24,10 @@ export async function middleware(request: NextRequest) {
 
   const { data: { user } } = await supabase.auth.getUser()
 
-  const isAuthRoute = request.nextUrl.pathname.startsWith('/login')
-  const isSetupRoute = request.nextUrl.pathname === '/setup'
-  const isApiRoute = request.nextUrl.pathname.startsWith('/api')
+  const pathname = request.nextUrl.pathname
+  const isAuthRoute = pathname.startsWith('/login')
+  const isSetupRoute = pathname === '/setup'
+  const isApiRoute = pathname.startsWith('/api')
 
   if (!user && !isAuthRoute && !isApiRoute) {
     return NextResponse.redirect(new URL('/login', request.url))
@@ -33,9 +35,34 @@ export async function middleware(request: NextRequest) {
 
   if (user) {
     const { data: profile } = await supabase
-      .from('user_profiles').select('id').eq('id', user.id).single()
+      .from('user_profiles')
+      .select('id, allowed_pages')
+      .eq('id', user.id)
+      .single()
+
     if (!profile && !isSetupRoute && !isAuthRoute && !isApiRoute) {
       return NextResponse.redirect(new URL('/setup', request.url))
+    }
+
+    // ── Page-level access enforcement ─────────────────────────────────────
+    if (profile) {
+      const allowedPages: string[] | null = profile.allowed_pages
+
+      if (!isAuthRoute && !isSetupRoute) {
+        if (isApiRoute) {
+          // API routes: check page ownership, return 403 if forbidden
+          const page = pageForApiRoute(pathname)
+          if (page && !hasPageAccess(allowedPages, page)) {
+            return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
+          }
+        } else {
+          // Page routes: redirect to dashboard if not allowed
+          const page = pageSlugFromPath(pathname)
+          if (page && !hasPageAccess(allowedPages, page)) {
+            return NextResponse.redirect(new URL('/dashboard', request.url))
+          }
+        }
+      }
     }
   }
 

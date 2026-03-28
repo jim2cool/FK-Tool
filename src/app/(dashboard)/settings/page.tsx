@@ -6,7 +6,10 @@ import { Label } from '@/components/ui/label'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
 import { Separator } from '@/components/ui/separator'
+import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { toast } from 'sonner'
+import { useUserAccess } from '@/hooks/use-user-access'
+import { TeamSection } from '@/components/settings/TeamSection'
 import type { Warehouse, MarketplaceAccount, Platform } from '@/types'
 
 const PLATFORMS: Platform[] = ['flipkart', 'amazon', 'd2c']
@@ -17,6 +20,7 @@ const PLATFORM_LABELS: Record<Platform, string> = {
 }
 
 export default function SettingsPage() {
+  const { isOwner } = useUserAccess()
   const [warehouses, setWarehouses] = useState<Warehouse[]>([])
   const [accounts, setAccounts] = useState<MarketplaceAccount[]>([])
   const [whName, setWhName] = useState('')
@@ -104,11 +108,20 @@ export default function SettingsPage() {
   }
 
   return (
-    <div className="max-w-2xl space-y-8">
+    <div className="space-y-6">
       <div>
         <h2 className="text-2xl font-bold mb-1">Settings</h2>
-        <p className="text-muted-foreground text-sm">Manage warehouses and marketplace accounts</p>
+        <p className="text-muted-foreground text-sm">Manage your workspace, team, and accounts</p>
       </div>
+
+      <Tabs defaultValue="general">
+        <TabsList>
+          <TabsTrigger value="general">General</TabsTrigger>
+          {isOwner && <TabsTrigger value="team">Team</TabsTrigger>}
+        </TabsList>
+
+        <TabsContent value="general" className="mt-4">
+          <div className="max-w-2xl space-y-8">
 
       {/* Warehouses */}
       <Card>
@@ -192,6 +205,16 @@ export default function SettingsPage() {
           </form>
         </CardContent>
       </Card>
+
+          </div>
+        </TabsContent>
+
+        {isOwner && (
+          <TabsContent value="team" className="mt-4">
+            <TeamSection />
+          </TabsContent>
+        )}
+      </Tabs>
     </div>
   )
 }
