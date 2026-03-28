@@ -1,7 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { getUserProfile } from '@/lib/db/tenant'
 import { createAdminClient } from '@/lib/supabase/admin'
-import { createClient } from '@/lib/supabase/server'
 import { ALL_PAGES } from '@/lib/auth/page-access'
 
 function forbidden() {
@@ -23,9 +22,10 @@ function validatePages(pages: string[] | null): string | null {
 export async function GET() {
   try {
     const caller = await getUserProfile()
-    const supabase = await createClient()
+    // Use admin client to bypass RLS (user_profiles RLS is id = auth.uid())
+    const admin = createAdminClient()
 
-    const { data, error } = await supabase
+    const { data, error } = await admin
       .from('user_profiles')
       .select('id, email, role, allowed_pages, created_at')
       .eq('tenant_id', caller.tenantId)
