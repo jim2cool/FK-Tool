@@ -10,7 +10,8 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { InfoTooltip } from '@/components/ui/info-tooltip'
 import { toast } from 'sonner'
-import { Link2, Package, Pencil, Plus, Trash2, X } from 'lucide-react'
+import { Link2, Package, Pencil, Plus, Trash2, Upload, X } from 'lucide-react'
+import { ComboImportDialog } from './ComboImportDialog'
 
 // ── Types ──────────────────────────────────────────────────────────
 
@@ -62,6 +63,9 @@ export function CombosTab() {
   const [comboName, setComboName] = useState('')
   const [components, setComponents] = useState<Array<{ masterSkuId: string; quantity: number }>>([])
   const [saving, setSaving] = useState(false)
+
+  // Import dialog
+  const [importDialogOpen, setImportDialogOpen] = useState(false)
 
   // Add mapping dialog
   const [mappingDialogOpen, setMappingDialogOpen] = useState(false)
@@ -288,10 +292,16 @@ export function CombosTab() {
           </p>
           <InfoTooltip content="Combos let you map one platform SKU to multiple master products. When a combo is ordered, it's tracked as separate items for each component product." />
         </div>
-        <Button onClick={openCreate}>
-          <Plus className="h-4 w-4 mr-2" />
-          Create Combo
-        </Button>
+        <div className="flex items-center gap-2">
+          <Button variant="outline" onClick={() => setImportDialogOpen(true)}>
+            <Upload className="h-4 w-4 mr-2" />
+            Import CSV
+          </Button>
+          <Button onClick={openCreate}>
+            <Plus className="h-4 w-4 mr-2" />
+            Create Combo
+          </Button>
+        </div>
       </div>
 
       {/* Empty state */}
@@ -522,6 +532,13 @@ export function CombosTab() {
           </DialogFooter>
         </DialogContent>
       </Dialog>
+
+      {/* Import CSV Dialog */}
+      <ComboImportDialog
+        open={importDialogOpen}
+        onOpenChange={setImportDialogOpen}
+        onImported={loadData}
+      />
     </div>
   )
 }
