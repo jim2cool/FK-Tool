@@ -101,6 +101,8 @@ export type ConsolidatedRow = {
   est_revenue_per_unit: number | null
   est_pnl_per_unit: number | null
   total_est_pnl: number | null
+  est_pnl_pct: number | null      // Total Est. P&L ÷ Total Bank Settlement
+  return_on_cogs: number | null   // Total Est. P&L ÷ (Total COGS × Delivery Rate)
   low_confidence: boolean   // true = no P&L History match; used portfolio averages
 }
 

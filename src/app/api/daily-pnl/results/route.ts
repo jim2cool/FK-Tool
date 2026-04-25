@@ -140,6 +140,22 @@ export async function GET(request: NextRequest) {
         est_pnl   = est_revenue - delivery_rate * agg.cogs - est_return_cost
         total_pnl = agg.quantity * est_pnl
       }
+      // Two new metrics matching the spec's Consolidated Report:
+      //   est_pnl_pct    = Total Est. P&L ÷ Total Bank Settlement
+      //                    (profit as % of projected revenue)
+      //   return_on_cogs = Total Est. P&L ÷ (Total COGS × Delivery Rate)
+      //                    (return on the COGS you actually incur — only delivered units consume COGS)
+      const total_bank = avg_bank != null ? avg_bank * agg.quantity : null
+      const total_cogs = agg.cogs != null ? agg.cogs * agg.quantity : null
+      const est_pnl_pct =
+        total_pnl != null && total_bank != null && total_bank > 0
+          ? total_pnl / total_bank
+          : null
+      const return_on_cogs =
+        total_pnl != null && total_cogs != null && delivery_rate != null && total_cogs * delivery_rate > 0
+          ? total_pnl / (total_cogs * delivery_rate)
+          : null
+
       consolidated.push({
         master_product:           agg.master,
         quantity:                 agg.quantity,
@@ -151,6 +167,8 @@ export async function GET(request: NextRequest) {
         est_revenue_per_unit:     est_revenue,
         est_pnl_per_unit:         est_pnl,
         total_est_pnl:            total_pnl,
+        est_pnl_pct,
+        return_on_cogs,
         low_confidence,
       })
     }
