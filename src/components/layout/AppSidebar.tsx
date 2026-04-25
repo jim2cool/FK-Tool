@@ -17,6 +17,7 @@ const navItems: NavEntry[] = [
   { type: 'link', href: '/dispatches', label: 'Dispatches', icon: Truck },
   { type: 'link', href: '/returns', label: 'Returns & Claims', icon: RotateCcw },
   { type: 'link', href: '/labels', label: 'Labels', icon: Tags },
+  { type: 'link', href: '/daily-pnl', label: 'Daily P&L', icon: Calculator },
   { type: 'separator' },
   { type: 'link', href: '/catalog', label: 'Master Catalog', icon: Package },
   { type: 'link', href: '/purchases', label: 'Purchases', icon: ShoppingCart },
