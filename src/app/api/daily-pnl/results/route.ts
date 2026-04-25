@@ -77,6 +77,7 @@ export async function GET(request: NextRequest) {
         total_rvp_fees: agg.rvp_fees,
         total_rto_fees: agg.rto_fees,
         avg_rvp_cost_per_unit: agg.rvp > 0 ? agg.rvp_fees / agg.rvp : 0,
+        avg_rto_cost_per_unit: agg.rto > 0 ? agg.rto_fees / agg.rto : 0,
         est_return_cost_per_dispatched_unit: dispatched > 0 ? (agg.rvp_fees + agg.rto_fees) / dispatched : 0,
       })
     }

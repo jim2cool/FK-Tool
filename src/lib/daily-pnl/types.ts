@@ -72,6 +72,7 @@ export type ReturnCostsRow = {
   total_rvp_fees: number
   total_rto_fees: number
   avg_rvp_cost_per_unit: number
+  avg_rto_cost_per_unit: number
   est_return_cost_per_dispatched_unit: number
 }
 

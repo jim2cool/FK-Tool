@@ -262,7 +262,10 @@ export function ResultsTabs({ data, from, to }: { data: ResultsResponse; from: s
                     Delivery Rate <InfoTooltip content="Delivered ÷ Dispatched, where Dispatched = Gross Units − Cancelled and Delivered = Dispatched − RTO − RVP. This is the same Delivery Rate used in the Consolidated P&L estimate." />
                   </TableHead>
                   <TableHead className="text-right">
-                    Avg RVP Cost/Unit <InfoTooltip content="Total RVP fees ÷ RVP units. Average marketplace fee burden you pay per customer-return shipment (commission reversal + reverse shipping + return processing)." />
+                    Avg RVP Cost/Unit <InfoTooltip content="Total RVP fees ÷ RVP units. Average marketplace fee burden per customer-return shipment (commission reversal + reverse shipping + return processing)." />
+                  </TableHead>
+                  <TableHead className="text-right">
+                    Avg RTO Cost/Unit <InfoTooltip content="Total RTO fees ÷ RTO units. Average marketplace fee burden per logistics-return shipment (failed delivery, never reached the customer)." />
                   </TableHead>
                   <TableHead className="text-right">
                     Est. Return Cost/Unit <InfoTooltip content="(Total RVP fees + Total RTO fees) ÷ Total Dispatched Units. Spreads the full return-fee burden across every dispatched unit — this is the per-dispatched-unit deduction we apply in the Consolidated P&L formula." />
@@ -280,11 +283,12 @@ export function ResultsTabs({ data, from, to }: { data: ResultsResponse; from: s
                     <TableCell className="text-right">{row.delivered_units}</TableCell>
                     <TableCell className={`text-right ${row.delivery_rate < 0.3 ? 'text-red-600 font-medium' : ''}`}>{pct(row.delivery_rate)}</TableCell>
                     <TableCell className="text-right">{inr(row.avg_rvp_cost_per_unit)}</TableCell>
+                    <TableCell className="text-right">{inr(row.avg_rto_cost_per_unit)}</TableCell>
                     <TableCell className="text-right">{inr(row.est_return_cost_per_dispatched_unit)}</TableCell>
                   </TableRow>
                 ))}
                 {data.return_costs.length === 0 && (
-                  <TableRow><TableCell colSpan={9} className="text-center text-muted-foreground py-8">Upload P&L History to see return cost analysis</TableCell></TableRow>
+                  <TableRow><TableCell colSpan={10} className="text-center text-muted-foreground py-8">Upload P&L History to see return cost analysis</TableCell></TableRow>
                 )}
               </TableBody>
             </Table>
