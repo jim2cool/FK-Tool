@@ -89,42 +89,35 @@ export function ResultsTabs({ data, from, to }: { data: ResultsResponse; from: s
         {showFormula && (
           <div className="px-4 pb-4 pt-1 text-sm space-y-3 border-t">
             <p className="text-muted-foreground">
-              We don&apos;t know the actual P&amp;L for orders dispatched in this date range yet — Flipkart only confirms it 20–30 days later.
-              We <span className="font-medium text-foreground">estimate</span> it now using your historical delivery rate and return-fee burden per master product.
+              Flipkart only confirms actual P&amp;L 20–30 days after dispatch. We <span className="font-medium text-foreground">estimate</span> it now
+              using each master product&apos;s historical delivery rate and return-fee burden.
             </p>
 
-            <div className="bg-background rounded border p-3 font-mono text-xs space-y-2 leading-relaxed">
-              <div><span className="text-blue-600 font-semibold">Est. Rev / Unit</span> = Delivery Rate × Avg Bank Settlement</div>
+            <div className="bg-background rounded border p-3 font-mono text-xs space-y-1.5 leading-relaxed">
+              <div><span className="text-blue-600 font-semibold">Est. Rev / Unit</span> = Delivery Rate × Avg Settlement</div>
               <div><span className="text-blue-600 font-semibold">Est. P&amp;L / Unit</span> = Est. Rev/Unit − (Delivery Rate × COGS/Unit) − Est. Return Cost/Unit</div>
-              <div><span className="text-blue-600 font-semibold">Total Est. P&amp;L</span>  = Qty × Est. P&amp;L/Unit</div>
-              <div className="pt-1 mt-1 border-t border-dashed">
-                <span className="text-blue-600 font-semibold">Est. P&amp;L %</span>      = Total Est. P&amp;L ÷ Total Bank Settlement
+              <div><span className="text-blue-600 font-semibold">Total Est. P&amp;L</span> = Qty × Est. P&amp;L/Unit</div>
+              <div className="pt-1.5 mt-1 border-t border-dashed">
+                <span className="text-blue-600 font-semibold">Est. P&amp;L %</span> = Total Est. P&amp;L ÷ Total Bank Settlement
               </div>
               <div>
                 <span className="text-blue-600 font-semibold">Return on COGS</span> = Total Est. P&amp;L ÷ (Total COGS × Delivery Rate)
               </div>
             </div>
 
-            <div className="space-y-1.5 text-muted-foreground">
-              <p>
-                <span className="font-medium text-foreground">Delivery Rate</span> = % of dispatched units that get delivered (not RTO&apos;d, RVP&apos;d, or cancelled).
-                Pulled from your last 60–90 days of P&amp;L History per master product. Products with no history use the portfolio-wide average.
-              </p>
-              <p>
-                <span className="font-medium text-foreground">Bank Settlement</span> = Flipkart&apos;s deposit to your account per delivered unit (after marketplace fees, before GST).
-              </p>
-              <p>
-                <span className="font-medium text-foreground">Delivery Rate × COGS/Unit</span> captures that you only economically &ldquo;lose&rdquo; COGS on delivered units —
-                returned goods come back to inventory and don&apos;t consume cost.
-              </p>
-              <p>
-                <span className="font-medium text-foreground">Est. Return Cost/Unit</span> = (RVP fees + RTO fees) ÷ dispatched units, computed per master product
-                from P&amp;L History. These are real cash losses (logistics + commission reversals + reverse shipping) even when goods come back.
-              </p>
-              <p>
-                <span className="font-medium text-foreground">Return on COGS</span> tells you the rupees of profit per rupee of COGS you actually consume —
-                more useful than gross margin when delivery rates differ a lot between products.
-              </p>
+            <div className="grid sm:grid-cols-2 gap-x-6 gap-y-1.5 text-xs text-muted-foreground">
+              <div>
+                <span className="font-medium text-foreground">Why DR × COGS?</span> Returns come back to inventory — you only economically consume COGS on delivered units.
+              </div>
+              <div>
+                <span className="font-medium text-foreground">Why Return Cost is still subtracted?</span> The marketplace fees on RTO/RVP shipments are real cash losses, even when goods come back.
+              </div>
+              <div>
+                <span className="font-medium text-foreground">Est. P&amp;L % vs Return on COGS:</span> P&amp;L % = profit per rupee of revenue. Return on COGS = profit per rupee of inventory you burn — better for comparing products with different delivery rates.
+              </div>
+              <div>
+                <span className="font-medium text-foreground">Where the inputs come from:</span> Avg Settlement &amp; COGS → Order Detail tab. Delivery Rate &amp; Est. Return Cost → Return Costs tab.
+              </div>
             </div>
           </div>
         )}
@@ -151,28 +144,31 @@ export function ResultsTabs({ data, from, to }: { data: ResultsResponse; from: s
                   <TableHead>Master Product</TableHead>
                   <TableHead className="text-right">Qty</TableHead>
                   <TableHead className="text-right">
-                    Avg Settlement <InfoTooltip content="Quantity-weighted average Bank Settlement across all dispatched SKUs that map to this master product. Bank Settlement = the rupees Flipkart deposits to your account per delivered unit (after marketplace fees, before GST). From your Listing upload." />
+                    Avg Settlement <InfoTooltip content="Quantity-weighted Bank Settlement per unit. Pulled from your Listing upload — see Order Detail tab for the per-order values." />
                   </TableHead>
                   <TableHead className="text-right">
-                    COGS/Unit <InfoTooltip content="Your inward cost (manufacturing + sourcing) per piece, from the COGS upload. Only delivered units economically consume this — returned goods come back to inventory." />
+                    Delivery Rate <InfoTooltip content="% of dispatched units that actually get delivered. Pulled from your historical P&L — see Return Costs tab for the breakdown." />
                   </TableHead>
                   <TableHead className="text-right">
-                    Delivery Rate <InfoTooltip content="Of every 100 dispatched units of this master product, how many actually get delivered (not RTO'd, RVP'd, or cancelled). Computed as: (Gross Units − Cancelled − RTO − RVP) ÷ (Gross Units − Cancelled) over your last 60–90 days of P&L History. Products with no history use the portfolio-wide average and are flagged 'low confidence'." />
+                    Est. Rev/Unit <InfoTooltip content="= Delivery Rate × Avg Settlement. Only delivered units generate revenue." />
                   </TableHead>
                   <TableHead className="text-right">
-                    Est. Rev/Unit <InfoTooltip content="Delivery Rate × Avg Bank Settlement. Only delivered units generate revenue — RTO and RVP shipments contribute ₹0. Open the 'How is P&L calculated?' panel above for the full chain." />
+                    COGS/Unit <InfoTooltip content="Your inward cost per piece, from the COGS upload. Only delivered units economically consume this — see Order Detail tab for per-order COGS." />
                   </TableHead>
                   <TableHead className="text-right">
-                    Est. P&L/Unit <InfoTooltip content="= Est. Rev/Unit − (Delivery Rate × COGS/Unit) − Est. Return Cost/Unit. The first term is expected revenue. (Delivery Rate × COGS) is the COGS you only burn on delivered units. Est. Return Cost/Unit is the marketplace fee burden of returns spread across all dispatched units." />
+                    Est. Return Cost/Unit <InfoTooltip content="Marketplace fee burden from RTO + RVP returns, allocated per dispatched unit. Pulled from your historical P&L — see Return Costs tab for the per-product breakdown." />
                   </TableHead>
                   <TableHead className="text-right">
-                    Total Est. P&L <InfoTooltip content="Qty × Est. P&L/Unit. Expected profit (or loss) once this batch of dispatched units fully settles 20–30 days from now." />
+                    Est. P&L/Unit <InfoTooltip content="= Est. Rev/Unit − (Delivery Rate × COGS/Unit) − Est. Return Cost/Unit" />
                   </TableHead>
                   <TableHead className="text-right">
-                    Est. P&L % <InfoTooltip content="Total Est. P&L ÷ Total Bank Settlement (= Qty × Avg Settlement). Profit as a percentage of projected revenue. Below 5% means you are essentially working for Flipkart; above 15% is healthy for Indian D2C on marketplaces." />
+                    Total Est. P&L <InfoTooltip content="= Qty × Est. P&L/Unit" />
                   </TableHead>
                   <TableHead className="text-right">
-                    Return on COGS <InfoTooltip content="Total Est. P&L ÷ (Total COGS × Delivery Rate). The rupees of profit you make per rupee of COGS you actually consume on delivered units. More useful than gross margin when comparing products with very different delivery rates — a 50% delivery product needs much higher Return on COGS to match a 90% delivery product's economics." />
+                    Est. P&L % <InfoTooltip content="= Total Est. P&L ÷ Total Bank Settlement. Profit as a % of projected revenue." />
+                  </TableHead>
+                  <TableHead className="text-right">
+                    Return on COGS <InfoTooltip content="= Total Est. P&L ÷ (Total COGS × Delivery Rate). Profit per rupee of COGS you actually consume on delivered units." />
                   </TableHead>
                 </TableRow>
               </TableHeader>
@@ -185,12 +181,13 @@ export function ResultsTabs({ data, from, to }: { data: ResultsResponse; from: s
                     </TableCell>
                     <TableCell className="text-right">{row.quantity}</TableCell>
                     <TableCell className="text-right">{inr(row.avg_bank_settlement)}</TableCell>
-                    <TableCell className="text-right">{inr(row.cogs_per_unit)}</TableCell>
                     <TableCell className="text-right">
                       {pct(row.delivery_rate)}
                       {row.delivery_rate != null && row.delivery_rate < 0.3 && <Badge className="ml-1 bg-red-100 text-red-700 border-0 text-xs">high risk</Badge>}
                     </TableCell>
                     <TableCell className="text-right">{inr(row.est_revenue_per_unit)}</TableCell>
+                    <TableCell className="text-right">{inr(row.cogs_per_unit)}</TableCell>
+                    <TableCell className="text-right text-muted-foreground">{inr(row.est_return_cost_per_unit)}</TableCell>
                     <TableCell className={`text-right font-medium ${(row.est_pnl_per_unit ?? 0) < 0 ? 'text-red-600' : 'text-green-700'}`}>{inr(row.est_pnl_per_unit)}</TableCell>
                     <TableCell className={`text-right font-bold ${(row.total_est_pnl ?? 0) < 0 ? 'text-red-600' : 'text-green-700'}`}>{inr(row.total_est_pnl)}</TableCell>
                     <TableCell className={`text-right ${(row.est_pnl_pct ?? 0) < 0 ? 'text-red-600' : 'text-green-700'}`}>{pct(row.est_pnl_pct)}</TableCell>
@@ -198,7 +195,7 @@ export function ResultsTabs({ data, from, to }: { data: ResultsResponse; from: s
                   </TableRow>
                 ))}
                 {data.consolidated.length === 0 && (
-                  <TableRow><TableCell colSpan={10} className="text-center text-muted-foreground py-8">No dispatched orders found in this date range</TableCell></TableRow>
+                  <TableRow><TableCell colSpan={11} className="text-center text-muted-foreground py-8">No dispatched orders found in this date range</TableCell></TableRow>
                 )}
               </TableBody>
             </Table>
