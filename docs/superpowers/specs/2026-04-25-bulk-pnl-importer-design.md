@@ -264,49 +264,59 @@ Single drop zone, `.xlsx` only, multiple. Files start parsing as soon as they dr
 
 ### Step 3 — File table
 
+The main table shows **only valid, importable files**. Rejected/skipped files are surfaced in a separate collapsible panel below — keeps the main table clean and the user's focus on what's actionable.
+
 ```
                                                                                               Account              Status
-┌─┐ × ☑ aBc123XYZ.xlsx   P&L     Mar 1–31, 2025   NUVIO-WMDH, XYDROG-VAC, NUV-ROMPER (+12)   [NuvioCentral ▾]    ✅ Ready · 1,234 rows
-├─┤ × ☑ qRs456pDq.xlsx   P&L     Apr 1–30, 2025   NUVIO-WMDH, XYDROG-VAC (+5 more)            [NuvioCentral ▾]    🔄 Parsing…
-├─┤ × ☑ ZzZ789aBc.xlsx   P&L     May 1–31, 2025   NUV-ROMPER, NIRVA (+8 more)                 [BodhNest ▾]        ✅ Ready · 2,341 rows
-├─┤ × ☐ broken.xlsx      —       —                —                                            —                   ❌ Error · Missing Order Item ID column
-├─┤ × ☐ dupe.pdf         —       —                —                                            —                   ❌ Error · Unsupported file type (.xlsx required)
-├─┤ × ☐ empty.xlsx       —       —                —                                            —                   ⚠️ 0 rows · Likely wrong date range
+┌─┐  ☑ aBc123XYZ.xlsx   P&L     Mar 1–31, 2025   NUVIO-WMDH, XYDROG-VAC, NUV-ROMPER (+12)   [NuvioCentral ▾]    ✅ Ready · 1,234 rows
+├─┤  ☑ qRs456pDq.xlsx   P&L     Apr 1–30, 2025   NUVIO-WMDH, XYDROG-VAC (+5 more)            [NuvioCentral ▾]    🔄 Parsing…
+├─┤  ☑ ZzZ789aBc.xlsx   P&L     May 1–31, 2025   NUV-ROMPER, NIRVA (+8 more)                 [BodhNest ▾]        ✅ Ready · 2,341 rows
 └─┘
 
-3 of 6 files selected, ~3,575 rows total                              [Apply account to selected ▾] (shift-click rows to select)
+3 of 3 valid files selected, ~3,575 rows total                       [Apply account to selected ▾] (shift-click rows to select)
+
+▶ 3 files skipped — click to see why
+   broken.xlsx        ❌ Missing Order Item ID column
+   dupe.pdf           ❌ Unsupported file type (.xlsx required)
+   empty.xlsx         ⚠️ 0 rows — likely wrong date range
+                          [Re-include] (turns into a row in the main table, user can recheck and assign account)
 
 [← Back]                                                                                               [Import 3 files →]
 ```
 
-**Per-row controls:**
-- **× (remove)** — fully drops the file from the table
-- **☑ checkbox** — include/exclude from import (the only "include" semantic on this row)
+**Per-row controls (main table):**
+- **☑ checkbox** — include/exclude from import (default: checked for valid rows)
 - **Account dropdown** — required for P&L/Orders; disabled with `—` and `<InfoTooltip content="Settlement reports apply across all accounts — no assignment needed.">` for Returns/Settlement
-- **Status column** — pairs every emoji with text (`✅ Ready`, `🔄 Parsing…`, `❌ Error`, `⚠️ 0 rows`) for screen readers and color-blind users
-- **Sample row column** — shows the first 3 distinct SKUs detected, with `(+N more)` count for files with more variety
+- **Status column** — pairs every emoji with text (`✅ Ready`, `🔄 Parsing…`) for screen readers and color-blind users
+- **Sample row column** — shows the first 3 distinct SKUs detected, with `(+N more)` count
 
-**Multi-select for bulk-assign:**
+**Skipped files panel:**
+- Collapsible (closed by default if 0 files; open by default if ≥ 1)
+- Header: `▶ N files skipped — click to see why`
+- One row per skipped file: filename + reason
+- Each row has a `[Re-include]` action that pushes it back into the main table (user can then check it and assign an account if appropriate — useful for the 0-row case where the user may genuinely want to import an empty period)
+
+**Multi-select for bulk-assign (main table only):**
 - **Shift-click** a row to select a range
-- **Ctrl/Cmd-click** to add individual rows to the selection
-- Selected rows get a highlighted background ring (separate visual from the include checkbox)
+- **Ctrl/Cmd-click** to add individual rows
+- Selected rows get a highlighted background ring (separate from the include checkbox)
 - "Apply account to selected ▾" appears when ≥ 2 rows are in the selection
 - This is **not** the same as the include checkbox — selection is for bulk-assign only
 
-**Auto-handling:**
-- Wrong file type → red row, auto-unchecked, can't be checked
-- Parse error → red row, auto-unchecked, tooltip shows error
-- 0-row file → yellow row, auto-unchecked (must be explicitly re-checked to import)
-- Duplicate-file drop (same `name + size + lastModified`) → toast "(already added)", no duplicate row
+**Auto-handling at file-drop time:**
+- Wrong file type → goes directly to skipped panel
+- Parse error → goes directly to skipped panel
+- 0-row file → goes directly to skipped panel (with `[Re-include]` for the rare deliberate empty-period case)
+- Duplicate-file drop (same `name + size + lastModified`) → toast "(already added)", no duplicate row anywhere
 
-**Aggregate parse indicator** above the table while parses are in flight:
+**Aggregate parse indicator** above the main table while parses are in flight:
 ```
 Parsing 4 of 9 files…
 ```
 
 **Import button** disabled when:
-- Any *checked* P&L/Orders row is missing an account, OR
-- Zero rows checked
+- Any *checked* P&L/Orders row in the main table is missing an account, OR
+- Zero rows checked in the main table
 
 ### Step 4 — Pre-import confirmation modal
 
