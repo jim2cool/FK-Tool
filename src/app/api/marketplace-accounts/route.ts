@@ -53,7 +53,27 @@ export async function DELETE(request: Request) {
     const tenantId = await getTenantId()
     const supabase = await createClient()
     const { id } = await request.json()
-    await supabase.from('marketplace_accounts').delete().eq('id', id).eq('tenant_id', tenantId)
+    const { error, count } = await supabase
+      .from('marketplace_accounts')
+      .delete({ count: 'exact' })
+      .eq('id', id)
+      .eq('tenant_id', tenantId)
+    if (error) {
+      // Postgres FK violation = 23503 (linked dispatches / orders / sku_mappings)
+      if ((error as { code?: string }).code === '23503') {
+        return NextResponse.json(
+          {
+            error: 'has_linked_data',
+            message: 'This account has linked orders, dispatches, or SKU mappings and cannot be deleted. Archive support is coming in a future release.',
+          },
+          { status: 409 },
+        )
+      }
+      throw error
+    }
+    if (count === 0) {
+      return NextResponse.json({ error: 'Account not found' }, { status: 404 })
+    }
     return NextResponse.json({ success: true })
   } catch (e: unknown) {
     return NextResponse.json({ error: (e as Error).message }, { status: 500 })

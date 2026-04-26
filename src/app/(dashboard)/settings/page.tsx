@@ -112,6 +112,13 @@ export default function SettingsPage() {
     if (res.ok) {
       toast.success('Account removed')
       loadAccounts()
+    } else {
+      const body = await res.json().catch(() => ({}))
+      if (res.status === 409 && body.error === 'has_linked_data') {
+        toast.error(body.message ?? 'This account has linked data and cannot be deleted.')
+      } else {
+        toast.error(body.error ?? 'Failed to remove account')
+      }
     }
   }
 
