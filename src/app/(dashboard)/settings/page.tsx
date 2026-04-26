@@ -8,8 +8,11 @@ import { Badge } from '@/components/ui/badge'
 import { Separator } from '@/components/ui/separator'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { toast } from 'sonner'
+import { Pencil } from 'lucide-react'
 import { useUserAccess } from '@/hooks/use-user-access'
 import { TeamSection } from '@/components/settings/TeamSection'
+import { EditAccountDialog } from '@/components/settings/EditAccountDialog'
+import { InfoTooltip } from '@/components/ui/info-tooltip'
 import type { Warehouse, MarketplaceAccount, Platform } from '@/types'
 
 const PLATFORMS: Platform[] = ['flipkart', 'amazon', 'd2c']
@@ -28,6 +31,7 @@ export default function SettingsPage() {
   const [acctName, setAcctName] = useState('')
   const [acctPlatform, setAcctPlatform] = useState<Platform>('flipkart')
   const [loading, setLoading] = useState(false)
+  const [editingAccount, setEditingAccount] = useState<MarketplaceAccount | null>(null)
 
   const loadWarehouses = useCallback(async () => {
     const res = await fetch('/api/warehouses')
@@ -89,8 +93,12 @@ export default function SettingsPage() {
       setAcctName('')
       loadAccounts()
     } else {
-      const { error } = await res.json()
-      toast.error(error)
+      const body = await res.json().catch(() => ({}))
+      if (res.status === 409 && body.error === 'name_already_in_use') {
+        toast.error(`An account named "${body.account_name}" already exists on ${PLATFORM_LABELS[acctPlatform]}.`)
+      } else {
+        toast.error(body.error ?? 'Failed to add account')
+      }
     }
     setLoading(false)
   }
@@ -170,16 +178,40 @@ export default function SettingsPage() {
           {accounts.length === 0 && (
             <p className="text-sm text-muted-foreground">No accounts yet.</p>
           )}
-          {accounts.map(acct => (
-            <div key={acct.id} className="flex items-center justify-between py-1">
-              <div className="flex items-center gap-2">
-                <Badge variant="outline">{PLATFORM_LABELS[acct.platform]}</Badge>
-                <span className="text-sm">{acct.account_name}</span>
+          {accounts.map(acct => {
+            const previousCount = (acct.previous_names ?? []).length
+            const mostRecentPrev = previousCount > 0 ? acct.previous_names[acct.previous_names.length - 1] : null
+            const tooltipContent = mostRecentPrev
+              ? `Previously: ${mostRecentPrev.name}${previousCount > 1 ? ` (+${previousCount - 1} earlier)` : ''}`
+              : ''
+            return (
+              <div key={acct.id} className="flex items-center justify-between py-1">
+                <div className="flex items-center gap-2">
+                  <Badge variant="outline">{PLATFORM_LABELS[acct.platform]}</Badge>
+                  <span className="text-sm">{acct.account_name}</span>
+                  {tooltipContent && <InfoTooltip content={tooltipContent} />}
+                </div>
+                <div className="flex items-center gap-1">
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    onClick={() => setEditingAccount(acct)}
+                    aria-label={`Rename ${acct.account_name}`}
+                  >
+                    <Pencil className="h-4 w-4" />
+                  </Button>
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    className="text-destructive"
+                    onClick={() => deleteAccount(acct.id)}
+                  >
+                    Remove
+                  </Button>
+                </div>
               </div>
-              <Button variant="ghost" size="sm" className="text-destructive"
-                onClick={() => deleteAccount(acct.id)}>Remove</Button>
-            </div>
-          ))}
+            )
+          })}
           <Separator />
           <form onSubmit={addAccount} className="space-y-3">
             <div className="grid grid-cols-2 gap-3">
@@ -215,6 +247,12 @@ export default function SettingsPage() {
           </TabsContent>
         )}
       </Tabs>
+
+      <EditAccountDialog
+        account={editingAccount}
+        onClose={() => setEditingAccount(null)}
+        onRenamed={() => loadAccounts()}
+      />
     </div>
   )
 }
