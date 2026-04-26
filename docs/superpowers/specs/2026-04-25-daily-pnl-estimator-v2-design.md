@@ -101,15 +101,22 @@ src/components/daily-pnl/
     available_months: string[]              // ["2026-02", "2026-03"]
     missing_months: string[]
     rows_in_window: number
+    rows_with_null_account: number          // count of order_financials rows in window
+                                             // whose orders.marketplace_account_id IS NULL
+                                             // (legacy data; see note below)
     status: 'full' | 'partial' | 'none'
     fallback_strategy?: 'similar_priced' | 'portfolio_average' | null
     cogs_present: boolean                   // whether dp_cogs has data for this account
     listing_present: boolean                // whether dp_listing has data for this account
-    cogs_last_updated_days_ago?: number     // null if cogs_present = false
-    listing_last_updated_days_ago?: number  // null if listing_present = false
+    cogs_last_updated_at?: string           // ISO timestamp of MAX(dp_cogs.created_at) WHERE marketplace_account_id = X
+    listing_last_updated_at?: string        // ISO timestamp of MAX(dp_listing.created_at) WHERE marketplace_account_id = X
   }>
 }
 ```
+
+**Stale-data UI:** the client computes "X days ago" from `cogs_last_updated_at` / `listing_last_updated_at` using its own local clock (display only). Server returns the raw ISO timestamps so different time zones don't cause "9 vs 10 days ago" inconsistencies between server and client.
+
+**Legacy null-account note:** the existing `pnl-import-server.ts` enrichment path (pre-Estimator-v2) sometimes left `orders.marketplace_account_id = NULL`. The benchmark count `rows_in_window` only includes rows where `orders.marketplace_account_id = X` (per-account scoped). Rows in the window with NULL account belong to no specific account and are surfaced separately as `rows_with_null_account` for diagnostic display ("242 rows in this period have no account assignment — backfill needed"). v2 does NOT backfill those automatically; that's a separate maintenance task to be scheduled.
 
 The endpoint also returns whether COGS / Listing data exists per-account, and how stale it is. The UI uses this to:
 - Show "COGS missing — required" red label if `cogs_present = false`
@@ -118,6 +125,22 @@ The endpoint also returns whether COGS / Listing data exists per-account, and ho
 **Benchmark window logic** (see Detailed Logic section).
 
 #### UPDATED: `GET /api/daily-pnl/results`
+
+**🔒 Security requirement (non-optional):** the endpoint MUST verify EVERY `marketplace_account_id` in the request belongs to the caller's tenant. Implementation:
+
+```typescript
+const { data: ownedAccounts } = await supabase
+  .from('marketplace_accounts')
+  .select('id')
+  .eq('tenant_id', tenantId)
+  .in('id', requestedAccountIds)
+
+if (!ownedAccounts || ownedAccounts.length !== requestedAccountIds.length) {
+  return NextResponse.json({ error: 'One or more accounts not found' }, { status: 403 })
+}
+```
+
+The same check applies to `GET /api/daily-pnl/benchmark-status` and any other multi-account endpoint added in v2. Without this, a malicious user could pass another tenant's account UUID and receive their data — `dp_orders` rows have no `tenant_id` column, so this check is the ONLY tenant-isolation defence.
 
 **Query params (changed):**
 - `marketplace_account_ids`: comma-separated UUIDs (was singular)
@@ -146,17 +169,20 @@ The endpoint also returns whether COGS / Listing data exists per-account, and ho
 For per-account results: existing v1 logic per account on its slice of data.
 
 For consolidated:
-1. Group all order_detail rows across accounts by `master_product_id` (derived per-account from `sku_mappings(account_id, platform_sku)`).
-2. **Quantity-weighted** aggregation across accounts:
+1. Group all order_detail rows across accounts by **`dp_cogs.master_product` (a normalized string key)**. This is the same grouping field v1 uses today — see `src/app/api/daily-pnl/results/route.ts:51` (`const master = cogs?.master_product ?? '__unmapped__'`). v2 does NOT introduce a new master_product UUID; it stays on the v1 string.
+2. **Normalization for the join key:** `master_product.trim().toLowerCase()`. Display uses the original casing from one of the contributing accounts (deterministic: alphabetic-first account's casing).
+3. **Quantity-weighted** aggregation across accounts:
    ```
    consolidated_avg_bank_settlement = Σ (account_avg_bank_settlement × account_qty) / Σ (account_qty)
    consolidated_avg_selling_price = Σ (account_avg_selling × account_qty) / Σ (account_qty)
    consolidated_qty = Σ (account_qty)
    ```
-3. Delivery rate and Est. Return Cost / Unit are **looked up from the consolidated benchmark pool** (all selected accounts' P&L history pooled), not averaged across accounts. This matches the spec workbook math.
-4. Add per-row `contributing_accounts: string[]` for the new "Accounts" column.
+4. Delivery rate and Est. Return Cost / Unit are **looked up from the consolidated benchmark pool** (all selected accounts' P&L history pooled), not averaged across accounts. This matches the spec workbook math.
+5. Add per-row `contributing_accounts: string[]` for the new "Accounts" column.
 
-**Critical safeguard for SKU mismerge:** consolidation joins on `master_product_id` (resolved per-account via `sku_mappings`), NEVER on raw `platform_sku` string. Two accounts with the same `platform_sku` mapped to *different* master products stay separated. This is non-obvious and tested.
+**SKU-mismerge note (revised understanding):** because the join key is `master_product` (a free-text label that the user maintains in `dp_cogs` per-account), two accounts MUST use the same label for the same logical product to consolidate correctly. If NuvioCentral has master_product = `"Washing Machine"` and BodhNest has `"washing-machine"`, the normalization (trim + lowercase) catches that. If they're genuinely different labels (`"Washing Machine"` vs `"Top Loader"`) for the same physical product, the v2 model leaves them as two consolidated rows. This is an accepted v2 limitation; v3 will fold consolidation onto `master_sku_id` (UUID from main schema's catalog) when `dp_*` retires.
+
+**Required documentation in UI:** the Bulk Importer / catalog onboarding flows should encourage consistent `master_product` labels across accounts. v2 doesn't add programmatic enforcement.
 
 #### Similar-priced product proxy
 
@@ -207,14 +233,25 @@ proxy_source?: {
 `src/lib/daily-pnl/benchmark-window.ts`
 
 ```typescript
+import { utcToZonedTime } from 'date-fns-tz'
+import { addDays, endOfMonth, startOfMonth, subMonths, format } from 'date-fns'
+
 const DEFAULT_LAG_DAYS = 20
+const DEFAULT_TZ = 'Asia/Kolkata'   // India sellers; use IST for "today"
 
 export function computeBenchmarkWindow(
-  today: Date,
+  utcNow: Date,                              // server's UTC clock
   lagDays: number = DEFAULT_LAG_DAYS,
-  monthsRequired: number = 2
+  monthsRequired: number = 2,
+  tz: string = DEFAULT_TZ
 ): { from: string; to: string; months: string[]; rationale: string } {
-  // Latest finalised month M = the latest month where end_of_month(M) + lagDays <= today
+  // Convert UTC to user's local "today" — without this, a midnight-IST request
+  // would compute the wrong day from a UTC server.
+  const today = utcToZonedTime(utcNow, tz)
+
+  // Rule: latest finalised month M = the latest month where
+  //   end_of_month(M) + lagDays <= today
+  // (i.e., we wait `lagDays` days past month-end before considering it finalised)
   const latestFinalised = findLatestFinalisedMonth(today, lagDays)
 
   const windowStart = startOfMonth(subMonths(latestFinalised, monthsRequired - 1))
@@ -224,24 +261,40 @@ export function computeBenchmarkWindow(
     from: format(windowStart, 'yyyy-MM-dd'),
     to: format(windowEnd, 'yyyy-MM-dd'),
     months: enumerateMonths(windowStart, windowEnd, 'yyyy-MM'),
-    rationale: `Today is ${format(today, 'MMM d, yyyy')}. Most recent finalised P&L = ${format(latestFinalised, 'MMM yyyy')} (${lagDays}-day lag rule). Recommended window = previous ${monthsRequired} finalised months.`,
+    rationale: `Today is ${format(today, 'MMM d, yyyy')} (${tz}). Most recent finalised P&L = ${format(latestFinalised, 'MMM yyyy')} (${lagDays}-day lag rule). Recommended window = previous ${monthsRequired} finalised months.`,
+  }
+}
+
+function findLatestFinalisedMonth(today: Date, lagDays: number): Date {
+  // Walk backwards from this month until end_of_month(M) + lagDays <= today
+  let m = startOfMonth(today)
+  while (true) {
+    const finalisedDate = addDays(endOfMonth(m), lagDays)
+    if (finalisedDate <= today) return m
+    m = subMonths(m, 1)
   }
 }
 ```
 
+**Timezone is non-optional.** All "today" math happens in `Asia/Kolkata`. Without this, an IST seller running the report at 1am IST gets benchmark windows that are off by a day from the user's mental model.
+
 #### Edge cases (named test cases — REQUIRED for v2)
 
-| Today | Lag boundary (today − 20) | Latest finalised | Window | Rationale |
-|---|---|---|---|---|
-| **2026-04-25** (mid-Apr) | 2026-04-05 | March 2026 | Feb–Mar 2026 | Standard case |
-| **2026-04-21** (just past lag boundary) | 2026-04-01 | March 2026 | Feb–Mar 2026 | First day March is "finalised" |
-| **2026-04-20** (exactly on lag boundary) | 2026-03-31 | February 2026 | Jan–Feb 2026 | Mar still NOT finalised — `lag_boundary <= month_end(Mar)` is false |
-| **2026-04-01** (start of month) | 2026-03-12 | February 2026 | Jan–Feb 2026 | Counter-intuitive but correct |
-| **2026-03-31** (end of month) | 2026-03-11 | January 2026 | Dec 2025 – Jan 2026 | Feb NOT finalised yet |
-| **2026-01-05** (cross-year) | 2025-12-16 | November 2025 | Oct–Nov 2025 | Year boundary |
-| **2026-01-21** (cross-year, past lag) | 2026-01-01 | December 2025 | Nov–Dec 2025 | Year boundary, December finalised |
+The rule is **`end_of_month(M) + lagDays ≤ today`** (boundary day inclusive — on April 20, March IS finalised because `2026-03-31 + 20 days = 2026-04-20`).
 
-These cases are part of the unit test suite. The `findLatestFinalisedMonth` helper must produce these exact outputs.
+All cases use `lagDays = 20`, `monthsRequired = 2`, `tz = 'Asia/Kolkata'`.
+
+| Today (IST) | Latest finalised | Window | Why |
+|---|---|---|---|
+| **2026-04-25** | March 2026 | Feb–Mar 2026 | Standard case mid-month |
+| **2026-04-20** (boundary inclusive) | March 2026 | Feb–Mar 2026 | `2026-03-31 + 20 = 2026-04-20`; ≤ holds |
+| **2026-04-19** (one day before boundary) | February 2026 | Jan–Feb 2026 | March needs `2026-04-20`; today is earlier so March NOT yet finalised |
+| **2026-04-01** (start of month) | February 2026 | Jan–Feb 2026 | March requires April 20; today is April 1 |
+| **2026-03-31** (end of month) | February 2026 | Jan–Feb 2026 | Feb's finalisation date is `2026-03-20`, ≤ today; March's is `2026-04-20`, > today |
+| **2026-01-05** (cross-year) | November 2025 | Oct–Nov 2025 | Dec needs `2026-01-20`; today is Jan 5; step back to Nov (`2025-12-20` ≤ Jan 5) |
+| **2026-01-20** (cross-year boundary) | December 2025 | Nov–Dec 2025 | Dec needs `2026-01-20`; ≤ holds |
+
+These exact cases are required unit tests. The `findLatestFinalisedMonth` helper must produce these exact outputs. Earlier draft of this table had two arithmetic errors that are now corrected.
 
 ## UI / UX
 
@@ -596,6 +649,25 @@ Timeout at 60 seconds → error toast + retry button.
 4. **Sticky Compute button** — sometimes obstructs accordion content as it scrolls. Acceptable, or make it dismissible after first compute?
 
 5. **"Continue" button label.** Worth gut-checking: does "Continue" feel like step 1 of 2, or could "Next" / "Load configuration" be clearer? My pick: "Continue" — short, action-oriented, doesn't promise side-effects.
+
+## Corrections from implementation-readiness review
+
+The following issues were found in a second adversarial review pass and corrected in this spec:
+
+1. **`master_product_id` confusion** — earlier draft claimed consolidation joins on a `master_product_id` UUID resolved via `sku_mappings`. v1 actually uses the `dp_cogs.master_product` STRING. Spec now correctly uses the string with `trim+toLowerCase` normalization. v3 fold-back will move to `master_sku_id` UUID when `dp_*` retires.
+
+2. **Benchmark window math errors** — earlier table had two arithmetic errors:
+   - `2026-04-20`: said February finalised; correct answer is **March finalised** (boundary day inclusive).
+   - `2026-03-31`: said January finalised; correct answer is **February finalised**.
+   Both corrected with worked-out `end_of_month + lagDays ≤ today` derivations in the table.
+
+3. **Timezone undefined** — earlier draft used naive `Date` math, which would give wrong results for IST sellers near midnight. Spec now explicitly uses `Asia/Kolkata` via `date-fns-tz`.
+
+4. **Tenant-scoping security gap** — multi-account endpoints had no explicit tenant verification beyond the v1 single-account check. `dp_orders` rows have no `tenant_id` column, so the only defence is verifying every requested account belongs to the caller. Now spec'd as a non-optional security requirement on both `/api/daily-pnl/results` and `/api/daily-pnl/benchmark-status`.
+
+5. **Legacy null `orders.marketplace_account_id` handling** — earlier draft assumed the column was always populated. Reality: legacy P&L imports left it null. Spec now surfaces `rows_with_null_account` as diagnostic output instead of silently miscounting.
+
+6. **Bulk Importer `?intent=bulk-import` deep-link contract** — moved into the Bulk Importer spec, so the fallback link from the Benchmark Status card actually works.
 
 ## Future enhancements (v3 candidates)
 

@@ -104,6 +104,27 @@ Verified during planning:
 
 For v1, **`.csv` is NOT advertised** as supported in the drop zone's `accept` prop (Flipkart Seller Hub only exports `.xlsx`). The drop zone explicitly accepts `.xlsx` only and rejects others (see Empty States section).
 
+**Case-insensitive extension matching:** the `accept` prop must include both `.xlsx` and `.XLSX` patterns to handle uppercase extensions on Windows downloads.
+
+### Enrichment-path safety for marketplace_account_id
+
+**Critical implementation detail discovered during review.** The existing `pnl-import-server.ts` has TWO write paths:
+
+1. **Insert path** (new order_item_id) — sets `marketplace_account_id` from the bulk-import's assigned account. Safe.
+2. **Enrichment path** (matches existing order via `order_item_id`/`platform_order_id`) — currently does an `UPDATE` that does NOT touch `marketplace_account_id`. Unsafe for bulk import.
+
+**Risk:** if the user accidentally assigns NuvioCentral's P&L file to BodhNest in bulk, the enrichment path silently keeps the existing (correct, label-derived) `marketplace_account_id` while writing financial data — the financial figures are correct per-order but the assignment audit trail is misleading.
+
+**Required server-side change as part of this spec:** before enriching, the import server MUST:
+1. Read the existing order's `marketplace_account_id`
+2. Compare to the assigned `marketplaceAccountId` in the import request
+3. **If they differ AND the existing one is non-null:**
+   - Default behavior: SKIP the enrichment for that row, count it in `mismatched_account` in the result
+   - Bulk Importer surfaces these in Step 6: "X rows skipped — assigned to Y but already linked to Z. Verify file-account mapping."
+4. **If existing is null** (legacy data): proceed with enrichment AND set `marketplace_account_id` to the assigned value (backfill).
+
+This adds ~half a day to implementation but is required to honor the verification-checkbox guarantee.
+
 ## Data flow
 
 ### Per-file lifecycle inside the dialog
@@ -158,12 +179,16 @@ Final summary aggregates per-file + per-account totals
 
 Read-only, runs as a single batched query per file. Implementation per report type:
 
-| Report type | Overlap query target |
-|---|---|
-| P&L | `order_financials` joined to `orders` where `marketplace_account_id = X AND order_date BETWEEN from AND to AND tenant_id = current` |
-| Orders | `orders` where same filter |
-| Returns | `orders` where `return_date BETWEEN from AND to AND tenant_id = current` |
-| Settlement | `orders` where `settlement_date BETWEEN from AND to AND tenant_id = current` |
+| Report type | Overlap query target | Per-account filter? |
+|---|---|---|
+| P&L | `order_financials` joined to `orders` where `marketplace_account_id = X AND order_date BETWEEN from AND to AND tenant_id = current` | Yes |
+| Orders | `orders` where `marketplace_account_id = X AND order_date BETWEEN from AND to AND tenant_id = current` | Yes |
+| Returns | `orders` where `return_request_date BETWEEN from AND to AND tenant_id = current` | **No (tenant-wide)** |
+| Settlement | `orders` where `settlement_date BETWEEN from AND to AND tenant_id = current` | **No (tenant-wide)** |
+
+**Important caveat for Returns and Settlement:** these report types don't carry a `marketplace_account_id` (they're matched by `order_item_id` against the existing orders table, regardless of which account the order belongs to). The overlap count is therefore **tenant-wide** for these types — it tells you "your tenant already has N return rows in this date range" without breaking that down per-account. The confirmation modal renders this honestly: "Tenant already has 234 return rows in Mar 2025 — duplicates dedupe by Order Item ID."
+
+**Schema note:** the column is named `return_request_date` in `orders` (not `return_date`). The Returns server-side import writes both `return_request_date` and `return_complete_date`; we use `return_request_date` for the overlap query because it aligns with Flipkart's "report period" semantics (when the return was filed, not when it was completed).
 
 ## UI / UX
 
@@ -231,8 +256,11 @@ Single drop zone, `.xlsx` only, multiple. Files start parsing as soon as they dr
 **Limits enforced:**
 - Max 50 files per session (soft cap with warning past 30; hard reject at 50)
 - Max 50 MB per file (hard reject)
-- Files > 10 MB parsed in a Web Worker to avoid main-thread freeze
 - Rejected files (wrong format, too large, parse-failed) appear as red rows in Step 3 with the rejection reason
+
+**Parsing strategy:** for v1, parse on the main thread synchronously per file. The xlsx parser is fast enough for typical Flipkart exports (single-month data is well under 5 MB). For files > 10 MB, the UI may briefly stutter while parsing — acceptable for a low-frequency backfill activity.
+
+> **Web Worker deferred to v2.** Adding a Web Worker for xlsx parsing requires bundler config (worker-loader for the `xlsx` chunk; cf. the `pdf.worker.min.mjs` precedent in CLAUDE.md). That's ~1.5 days of work for a rare-file optimisation. v2 candidate.
 
 ### Step 3 — File table
 
@@ -372,6 +400,12 @@ Both flows ultimately POST to the same import endpoints, which dedupe by `order_
 
 The overlap-check at Step 4 uses the database state at the moment of the API call, so any rows imported by a parallel session right after the check will only show up as deduped in Step 6.
 
+### Deep-link from other surfaces (`/pnl?intent=bulk-import`)
+
+The `/pnl` page reads a `?intent=bulk-import` query param on mount. If present, the page auto-opens the Bulk Import dialog at Step 1. After the dialog closes (or the user navigates), the param is removed via `router.replace('/pnl')` to keep the URL clean.
+
+This is the integration contract for surfaces (notably the Daily P&L Estimator v2's Benchmark Status card) that need to "send the user to bulk-import P&L." Without this contract, those surfaces have no graceful fallback when the in-place modal mounting isn't available.
+
 ## Accessibility
 
 - **Step transitions:** focus moves to the new step's heading on transition; uses `aria-live="polite"` so screen readers announce the change
@@ -445,11 +479,13 @@ Single dev with sub-agent execution:
 - Step components (6 + EmptyAccountsState) — ~1.5 days
 - Overlap-check endpoint — ~0.5 day
 - State machine + multi-select + sample preview wiring — ~1 day
-- Web Worker for large-file parsing + progress UI + ETA — ~0.5 day
+- Enrichment-path account-mismatch safety in `pnl-import-server.ts` + tests — ~0.5 day
+- `?intent=bulk-import` URL handler on `/pnl` page — ~0.25 day
+- Progress UI + ETA — ~0.25 day
 - Accessibility + error states + empty states — ~0.5 day
 - Manual + integration testing on real Flipkart reports — ~0.5 day
 
-**Estimated total: ~4.5 dev-days.**
+**Estimated total: ~5 dev-days.** (Was 4.5; +0.5 for enrichment-path safety, which was a missed integrity issue from v1 review.)
 
 ## Resolved design points (from review)
 
@@ -478,6 +514,22 @@ Single dev with sub-agent execution:
 2. **Web Worker for large-file parsing** — adds ~0.5 day of complexity for the rare case of files > 10 MB. Acceptable tradeoff?
 
 3. **Rejected-files in the file table vs separate "Skipped" panel** — currently red rows in the same table. Alternative: a collapsible "5 files skipped (click to see why)" panel below the table. Cleaner table; one extra click to diagnose.
+
+## Corrections from implementation-readiness review
+
+The following issues were found in a second adversarial review pass and corrected in this spec:
+
+1. **Wrong column name** — overlap-check for Returns referenced `orders.return_date`, which doesn't exist. The actual column is `return_request_date`. Fixed with rationale.
+
+2. **Returns/Settlement overlap scope** — these report types don't carry `marketplace_account_id`, so per-account overlap counts are impossible. Spec now explicitly returns tenant-wide counts for these types and the confirmation modal labels them honestly.
+
+3. **Enrichment-path account-mismatch silent corruption** — the existing `pnl-import-server.ts` enrichment branch updates an existing order's financials without validating that the assigned `marketplace_account_id` matches the existing one. Bulk-import users could (with a wrong account assignment) silently update the wrong account's data. Spec now requires server-side mismatch detection that skips the row and reports it as `mismatched_account` in the result. Added 0.5 day to the budget.
+
+4. **Web Worker for xlsx parsing was underestimated** — the precedent in CLAUDE.md (pdf.js worker bundling) shows this is a 1.5-day chore, not a 0.5-day one. Deferred to v2; v1 parses on the main thread.
+
+5. **Case-insensitive file extension matching** — `accept` prop must include both `.xlsx` and `.XLSX` for Windows downloads.
+
+6. **`?intent=bulk-import` deep-link contract** — added to spec so the Daily P&L Estimator v2's "Upload P&L now" fallback link works correctly.
 
 ## Future enhancements (v2 candidates)
 

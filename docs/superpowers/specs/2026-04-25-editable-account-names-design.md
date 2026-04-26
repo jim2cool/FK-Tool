@@ -33,22 +33,45 @@ Account names change for branding, segmentation, or organisational reasons. All 
 
 ### DB schema change
 
-Single migration adds the `previous_names` column AND tightens existing constraints:
+Single migration adds the `previous_names` column AND tightens existing constraints. **The migration is order-sensitive** — duplicates must be resolved BEFORE the unique index is added, otherwise the index creation will abort the entire migration:
 
 ```sql
+-- Step 1: add the new column (always safe)
 ALTER TABLE marketplace_accounts
   ADD COLUMN previous_names JSONB NOT NULL DEFAULT '[]'::jsonb;
 
--- Length check (covers both new entries and any legacy data)
+-- Step 2: pre-flight duplicate check.
+-- If any duplicates exist, abort with a clear message; manual cleanup needed
+-- (the alternative — auto-renaming — is too magical for a destructive operation).
+DO $$
+DECLARE dup_count INT;
+BEGIN
+  SELECT COUNT(*) INTO dup_count
+  FROM (
+    SELECT 1 FROM marketplace_accounts
+    GROUP BY tenant_id, platform, lower(account_name)
+    HAVING COUNT(*) > 1
+  ) d;
+
+  IF dup_count > 0 THEN
+    RAISE EXCEPTION
+      'Cannot add unique index: % duplicate (tenant_id, platform, lower(account_name)) groups exist. Resolve manually before running this migration.',
+      dup_count;
+  END IF;
+END $$;
+
+-- Step 3: length check (covers both new entries and any legacy data)
 ALTER TABLE marketplace_accounts
   ADD CONSTRAINT account_name_length_check
     CHECK (char_length(account_name) BETWEEN 1 AND 100);
 
--- Case-insensitive uniqueness per (tenant, platform). Prevents two parallel PATCHes
--- both passing app-level uniqueness checks and creating duplicates.
+-- Step 4: case-insensitive uniqueness per (tenant, platform).
+-- Now safe because duplicates were caught above.
 CREATE UNIQUE INDEX marketplace_accounts_unique_name_per_platform
   ON marketplace_accounts (tenant_id, platform, lower(account_name));
 ```
+
+**Pre-deployment manual step:** before applying this migration, run the duplicate-check query (Step 2 alone) on production. If it reports `dup_count > 0`, ask the user to rename the duplicates via existing UI (the existing POST endpoint still allows it before the index exists) before re-running the migration.
 
 Each entry in `previous_names` has shape `{ "name": string, "changed_at": ISO8601 string }`. Append-only — rename appends, never edits.
 
@@ -71,6 +94,7 @@ Example after two renames:
 {
   account_name: string
   expected_current_name: string   // stale-write protection
+  force_recycle?: boolean         // set true after user confirms recycle-name warning
 }
 ```
 
@@ -81,8 +105,9 @@ Example after two renames:
 4. Read current row.
 5. **Stale-write check:** if `expected_current_name` (also normalized) ≠ current `account_name`, return `409 Conflict` with body `{ error: "stale_edit", current_name: <actualCurrent> }`. The UI re-fetches and prompts user to retry.
 6. If normalized new name equals current `account_name`, return 200 with the unchanged row (idempotent).
-7. **Recycle-name warning** (non-blocking; client side):
-   - If new name matches any name in `previous_names` of *another active account* on the same platform, server returns `200` with a `warning: "name_recently_used_by_another_account"` field plus the conflicting account's name. UI surfaces this as a confirm dialog before final save.
+7. **Recycle-name warning** (non-blocking; gated on `force_recycle`):
+   - If `force_recycle !== true` AND the new name matches any name in `previous_names` of *another active account* on the same platform, server returns `200` with `{ warning: "name_recently_used_by_another_account", conflicting_account_name: "X", expected_current_name }`. The row is **NOT** updated. UI shows confirm dialog. On confirm, UI re-PATCHes with `force_recycle: true`.
+   - If `force_recycle === true`, skip the recycle check entirely.
 8. Otherwise update in a single SQL statement (which the unique index enforces concurrency-safely):
 
 ```sql
@@ -100,15 +125,41 @@ If the unique index throws (race with another rename), return 409 with `{ error:
 
 **Response:** updated `marketplace_account` row (matches GET shape).
 
+### POST endpoint update (required, same migration)
+
+The existing `POST /api/marketplace-accounts` does no uniqueness check today (relies on app-level POSTs not colliding). Once the unique index is added, naive POSTs will throw a cryptic Postgres unique-violation error. **The POST handler must be updated in the same PR** to:
+
+1. Catch the unique-violation Postgres error code (`23505` with constraint `marketplace_accounts_unique_name_per_platform`)
+2. Return a friendly `409 Conflict` with `{ error: "name_already_in_use", account_name: "X" }`
+3. The Settings UI must surface this with a clear toast: "An account named 'X' already exists on Flipkart"
+
+This is non-optional — without it, normal account creation breaks the moment the migration runs.
+
 ### Cache invalidation
 
 Renaming MUST invalidate every surface showing account names. The PATCH success handler (in `EditAccountDialog.tsx`) calls:
 
 ```typescript
-// SWR mutate calls (or React Query equivalents — match what the codebase uses)
-mutate('/api/marketplace-accounts')
-mutate(key => typeof key === 'string' && key.startsWith('/api/pnl/'))
-mutate(key => typeof key === 'string' && key.startsWith('/api/daily-pnl/'))
+// Predicate handles BOTH string keys and array keys (SWR best practice
+// for parameterised queries is `[url, params]` array form)
+const isAffectedKey = (key: unknown): boolean => {
+  const str = Array.isArray(key) && typeof key[0] === 'string'
+    ? key[0]
+    : typeof key === 'string' ? key : null
+  if (!str) return false
+  return (
+    str.startsWith('/api/marketplace-accounts') ||
+    str.startsWith('/api/pnl/') ||
+    str.startsWith('/api/daily-pnl/') ||
+    str.startsWith('/api/dispatches') ||
+    str.startsWith('/api/labels/')
+  )
+}
+
+// During implementation: confirm whether the codebase uses SWR or React Query;
+// SWR uses mutate(predicate); React Query uses queryClient.invalidateQueries({ predicate }).
+// Both accept the same predicate signature.
+mutate(isAffectedKey)
 ```
 
 Surfaces verified to update on rename:
@@ -125,11 +176,11 @@ Acceptance test: rename in Settings, immediately navigate to `/daily-pnl` withou
 
 | File | Change |
 |---|---|
-| `supabase/migrations/<timestamp>_marketplace_account_history.sql` (new) | Migration above |
-| `src/app/api/marketplace-accounts/route.ts` | Add `PATCH` handler with normalization + stale-write check + recycle warning |
+| `supabase/migrations/<timestamp>_marketplace_account_history.sql` (new) | Migration above (incl. duplicate pre-flight) |
+| `src/app/api/marketplace-accounts/route.ts` | Add `PATCH` handler (with normalization + stale-write + recycle); ALSO update `POST` to map unique-violation 23505 to friendly 409 |
 | `src/types/database.ts` | Add `previous_names: PreviousName[]` to `MarketplaceAccount` type |
-| `src/components/settings/MarketplaceAccountsSettings.tsx` (or current path; confirm during planning) | Edit pencil per row, render `<InfoTooltip>` on renamed accounts |
-| `src/components/settings/EditAccountDialog.tsx` (new) | Modal with name input, previous-names list, recycle-warning confirm |
+| `src/components/settings/MarketplaceAccountsSettings.tsx` (or current path; confirm during planning) | Edit pencil per row, render `<InfoTooltip>` on renamed accounts; surface POST 409 with toast |
+| `src/components/settings/EditAccountDialog.tsx` (new) | Modal with name input, previous-names list, recycle-warning confirm (sends `force_recycle: true` on confirm) |
 
 ## UI / UX
 
@@ -261,6 +312,18 @@ ambiguous when matched by name.
 9. **Tooltip discoverability** — uses existing `<InfoTooltip>` for hover + tap support.
 10. **Re-using own past name** — allowed; tooltip dedupes display.
 11. **`changed_by` deferral** — JSONB shape is forward-compatible with later addition.
+
+## Corrections from implementation-readiness review
+
+The following issues were found in a second adversarial review pass and corrected in this spec:
+
+1. **Migration would fail on existing duplicates** — the unique index would abort the deploy if any duplicate `(tenant_id, platform, lower(account_name))` exists today. Migration now includes a pre-flight check that fails loudly with a clear remediation message.
+
+2. **Existing POST endpoint missing uniqueness handling** — once the unique index exists, the existing `POST /api/marketplace-accounts` would throw cryptic Postgres errors on duplicate inserts. POST handler must be updated in the same PR with friendly error mapping. Now explicit.
+
+3. **Recycle-name confirmation flow had no bypass mechanism** — without a `force_recycle: true` flag, the user clicking "Use it anyway" would just re-trigger the same warning in an infinite loop. PATCH body now includes `force_recycle?: boolean`.
+
+4. **Cache invalidation predicate broke on array keys** — SWR best practice uses array keys for parameterised queries; the original string-prefix predicate would miss them. Predicate now handles both string and array key forms.
 
 ## Future enhancements (v2 candidates)
 
