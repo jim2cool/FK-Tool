@@ -60,6 +60,7 @@ export interface MarketplaceAccount {
   organization_id: string | null
   created_at: string
   previous_names: PreviousName[]
+  archived_at: string | null
 }
 
 export interface MasterSku {
