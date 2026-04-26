@@ -46,6 +46,11 @@ export interface Warehouse {
   created_at: string
 }
 
+export interface PreviousName {
+  name: string
+  changed_at: string  // ISO 8601 UTC timestamp
+}
+
 export interface MarketplaceAccount {
   id: string
   tenant_id: string
@@ -54,6 +59,7 @@ export interface MarketplaceAccount {
   mode: ConnectorMode
   organization_id: string | null
   created_at: string
+  previous_names: PreviousName[]
 }
 
 export interface MasterSku {
