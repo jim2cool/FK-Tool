@@ -4,12 +4,18 @@ import { NextResponse } from 'next/server'
 import type { Platform } from '@/types'
 import { normalizeAccountName } from '@/lib/marketplace-accounts/normalize'
 
-export async function GET() {
+export async function GET(request: Request) {
   try {
     const tenantId = await getTenantId()
     const supabase = await createClient()
-    const { data } = await supabase.from('marketplace_accounts')
-      .select('*').eq('tenant_id', tenantId).order('platform')
+    const { searchParams } = new URL(request.url)
+    const includeArchived = searchParams.get('include_archived') === 'true'
+
+    let q = supabase.from('marketplace_accounts')
+      .select('*').eq('tenant_id', tenantId)
+    if (!includeArchived) q = q.is('archived_at', null)
+
+    const { data } = await q.order('platform')
     return NextResponse.json(data)
   } catch (e: unknown) {
     return NextResponse.json({ error: (e as Error).message }, { status: 401 })
