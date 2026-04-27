@@ -59,11 +59,14 @@ export function StepDropFiles({ onFilesDropped, onBack, currentFileCount }: Prop
           isDragActive ? 'border-primary bg-primary/5' : 'border-border hover:border-primary/50',
         )}
       >
-        <input {...getInputProps()} />
+        <input {...getInputProps({ multiple: true })} />
         <Upload className="h-10 w-10 mx-auto text-muted-foreground mb-3" />
         <p className="text-sm font-medium">Drop your files here, or click to browse</p>
         <p className="text-xs text-muted-foreground mt-1">
-          Multiple files OK · .xlsx only · Max {MAX_FILES_PER_SESSION} files · 50 MB per file
+          .xlsx only · Max {MAX_FILES_PER_SESSION} files · 50 MB per file
+        </p>
+        <p className="text-xs text-muted-foreground mt-0.5">
+          Tip: select many files in Explorer (Ctrl-click) before dragging, or hold Ctrl in the file picker to multi-select.
         </p>
       </div>
       <div className="flex justify-start">
