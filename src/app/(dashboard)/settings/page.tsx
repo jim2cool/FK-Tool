@@ -32,6 +32,8 @@ export default function SettingsPage() {
   const [acctPlatform, setAcctPlatform] = useState<Platform>('flipkart')
   const [loading, setLoading] = useState(false)
   const [editingAccount, setEditingAccount] = useState<MarketplaceAccount | null>(null)
+  const [archivedAccounts, setArchivedAccounts] = useState<MarketplaceAccount[]>([])
+  const [showArchived, setShowArchived] = useState(false)
 
   const loadWarehouses = useCallback(async () => {
     const res = await fetch('/api/warehouses')
@@ -43,10 +45,19 @@ export default function SettingsPage() {
     if (res.ok) setAccounts(await res.json())
   }, [])
 
+  const loadArchivedAccounts = useCallback(async () => {
+    const res = await fetch('/api/marketplace-accounts?include_archived=true')
+    if (res.ok) {
+      const all: MarketplaceAccount[] = await res.json()
+      setArchivedAccounts(all.filter(a => a.archived_at !== null))
+    }
+  }, [])
+
   useEffect(() => {
     loadWarehouses()
     loadAccounts()
-  }, [loadWarehouses, loadAccounts])
+    loadArchivedAccounts()
+  }, [loadWarehouses, loadAccounts, loadArchivedAccounts])
 
   async function addWarehouse(e: React.FormEvent) {
     e.preventDefault()
@@ -109,16 +120,38 @@ export default function SettingsPage() {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ id }),
     })
+    const body = await res.json().catch(() => ({}))
     if (res.ok) {
-      toast.success('Account removed')
-      loadAccounts()
-    } else {
-      const body = await res.json().catch(() => ({}))
-      if (res.status === 409 && body.error === 'has_linked_data') {
-        toast.error(body.message ?? 'This account has linked data and cannot be deleted.')
+      if (body.archived) {
+        toast.success('Account archived — historical data preserved. Restore via the Archived section.')
       } else {
-        toast.error(body.error ?? 'Failed to remove account')
+        toast.success('Account removed')
       }
+      loadAccounts()
+      loadArchivedAccounts()
+    } else {
+      toast.error(body.error ?? 'Failed to remove account')
+    }
+  }
+
+  async function restoreAccount(acct: MarketplaceAccount) {
+    if (!window.confirm(`Restore account "${acct.account_name}"? It will reappear in account selectors across the app.`)) {
+      return
+    }
+    const res = await fetch('/api/marketplace-accounts', {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ id: acct.id, action: 'restore' }),
+    })
+    const body = await res.json().catch(() => ({}))
+    if (res.ok) {
+      toast.success('Account restored')
+      loadAccounts()
+      loadArchivedAccounts()
+    } else if (res.status === 409 && body.error === 'name_in_use_by_active_account') {
+      toast.error(`Cannot restore — another active account ("${body.conflicting_account_name}") uses this name. Rename it first.`)
+    } else {
+      toast.error(body.error ?? 'Failed to restore account')
     }
   }
 
@@ -219,6 +252,33 @@ export default function SettingsPage() {
               </div>
             )
           })}
+          {archivedAccounts.length > 0 && (
+            <div className="border-t pt-3 mt-3">
+              <button
+                type="button"
+                onClick={() => setShowArchived(s => !s)}
+                className="flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground"
+              >
+                {showArchived ? '▼' : '▶'} Archived accounts ({archivedAccounts.length})
+              </button>
+              {showArchived && (
+                <ul className="mt-2 space-y-1">
+                  {archivedAccounts.map(acct => (
+                    <li key={acct.id} className="flex items-center justify-between py-1 text-sm">
+                      <div className="flex items-center gap-2 text-muted-foreground">
+                        <Badge variant="outline" className="opacity-70">{PLATFORM_LABELS[acct.platform]}</Badge>
+                        <span>{acct.account_name}</span>
+                        {acct.archived_at && (
+                          <span className="text-xs">· Archived {new Date(acct.archived_at).toLocaleDateString('en-IN', { year: 'numeric', month: 'short', day: 'numeric' })}</span>
+                        )}
+                      </div>
+                      <Button variant="ghost" size="sm" onClick={() => restoreAccount(acct)}>Restore</Button>
+                    </li>
+                  ))}
+                </ul>
+              )}
+            </div>
+          )}
           <Separator />
           <form onSubmit={addAccount} className="space-y-3">
             <div className="grid grid-cols-2 gap-3">
