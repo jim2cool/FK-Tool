@@ -59,28 +59,40 @@ export async function DELETE(request: Request) {
     const tenantId = await getTenantId()
     const supabase = await createClient()
     const { id } = await request.json()
-    const { error, count } = await supabase
+    if (!id) {
+      return NextResponse.json({ error: 'id is required' }, { status: 400 })
+    }
+
+    // Try the hard delete first
+    const { error: delErr, count } = await supabase
       .from('marketplace_accounts')
       .delete({ count: 'exact' })
       .eq('id', id)
       .eq('tenant_id', tenantId)
-    if (error) {
-      // Postgres FK violation = 23503 (linked dispatches / orders / sku_mappings)
-      if ((error as { code?: string }).code === '23503') {
-        return NextResponse.json(
-          {
-            error: 'has_linked_data',
-            message: 'This account has linked orders, dispatches, or SKU mappings and cannot be deleted. Archive support is coming in a future release.',
-          },
-          { status: 409 },
-        )
-      }
-      throw error
+
+    if (!delErr && (count ?? 0) > 0) {
+      return NextResponse.json({ deleted: true })
     }
-    if (count === 0) {
+
+    if (delErr && (delErr as { code?: string }).code === '23503') {
+      // FK violation — archive instead
+      const archivedAt = new Date().toISOString()
+      const { error: updErr } = await supabase
+        .from('marketplace_accounts')
+        .update({ archived_at: archivedAt })
+        .eq('id', id)
+        .eq('tenant_id', tenantId)
+        .is('archived_at', null)   // don't re-archive an already-archived row
+      if (updErr) throw updErr
+      return NextResponse.json({ archived: true, archived_at: archivedAt })
+    }
+
+    if ((count ?? 0) === 0) {
       return NextResponse.json({ error: 'Account not found' }, { status: 404 })
     }
-    return NextResponse.json({ success: true })
+
+    if (delErr) throw delErr
+    return NextResponse.json({ deleted: true })   // defensive default
   } catch (e: unknown) {
     return NextResponse.json({ error: (e as Error).message }, { status: 500 })
   }
