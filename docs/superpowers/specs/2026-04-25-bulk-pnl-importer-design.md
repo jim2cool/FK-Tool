@@ -1,7 +1,7 @@
 # Bulk P&L Importer — Design Spec
 
 **Date:** 2026-04-25
-**Status:** Draft v2 (reviewed and revised)
+**Status:** Shipped 2026-04-27
 
 ## Goal
 
