@@ -99,12 +99,12 @@ export async function importPnlData(
   const allPlatformOrderIds = [...new Set(prepared.map(p => p.row.platformOrderId))]
 
   // Supabase .in() has a limit of ~300 items, chunk if needed
-  const existingOrders: Array<{ id: string; platform_order_id: string; order_item_id: string | null }> = []
+  const existingOrders: Array<{ id: string; platform_order_id: string; order_item_id: string | null; marketplace_account_id: string | null }> = []
   for (let i = 0; i < allPlatformOrderIds.length; i += 200) {
     const chunk = allPlatformOrderIds.slice(i, i + 200)
     const { data } = await supabase
       .from('orders')
-      .select('id, platform_order_id, order_item_id')
+      .select('id, platform_order_id, order_item_id, marketplace_account_id')
       .eq('tenant_id', tenantId)
       .in('platform_order_id', chunk)
     if (data) existingOrders.push(...data)
@@ -113,11 +113,13 @@ export async function importPnlData(
   // Build lookup maps
   const exactMatchSet = new Set<string>() // order_item_id values that already exist
   const labelMatchMap = new Map<string, string>() // platform_order_id → order.id (for label-enrichment)
+  const labelAccountMap = new Map<string, string | null>() // platform_order_id → existing marketplace_account_id
 
   for (const o of existingOrders) {
     if (o.order_item_id) exactMatchSet.add(o.order_item_id)
     if (o.order_item_id === o.platform_order_id) {
       labelMatchMap.set(o.platform_order_id, o.id)
+      labelAccountMap.set(o.platform_order_id, o.marketplace_account_id ?? null)
     }
   }
 
@@ -133,6 +135,7 @@ export async function importPnlData(
   const newInserts: NewOrderRow[] = []
   const enrichments: EnrichRow[] = []
   let enriched = 0
+  let mismatchedAccount = 0
 
   for (const p of prepared) {
     if (exactMatchSet.has(p.row.orderItemId)) {
@@ -192,10 +195,19 @@ export async function importPnlData(
 
   // ── 7. Batch UPDATE enrichments (one at a time — typically few) ──
   for (const { prepared: p, existingOrderId } of enrichments) {
+    // Refuse to silently overwrite an existing order's account with a different one.
+    // If the existing account is null (legacy label-ingested row), proceed and backfill it.
+    const existingAccountId: string | null = labelAccountMap.get(p.row.platformOrderId) ?? null
+    if (existingAccountId && existingAccountId !== marketplaceAccountId) {
+      mismatchedAccount += 1
+      continue
+    }
+
     const { error: updateErr } = await supabase
       .from('orders')
       .update({
         order_item_id: p.row.orderItemId,
+        marketplace_account_id: marketplaceAccountId,
         status: p.row.orderStatus,
         fulfillment_type: p.row.fulfillmentType,
         channel: p.row.channel,
@@ -285,7 +297,7 @@ export async function importPnlData(
     imported,
     skipped,
     enriched,
-    mismatchedAccount: 0,
+    mismatchedAccount,
     unmappedSkus: [...unmappedSkusSet],
     anomalyCount,
     errors,
