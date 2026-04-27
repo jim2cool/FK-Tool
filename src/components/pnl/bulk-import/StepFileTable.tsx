@@ -1,11 +1,10 @@
 'use client'
-import { useMemo, useState } from 'react'
+import { useMemo } from 'react'
 import { Button } from '@/components/ui/button'
 import { Checkbox } from '@/components/ui/checkbox'
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { InfoTooltip } from '@/components/ui/info-tooltip'
 import { Loader2, CheckCircle2, AlertCircle, X, ChevronRight, ChevronDown } from 'lucide-react'
-import type { FileEntry, MarketplaceAccountLite, ReportType } from './types'
+import type { FileEntry, ReportType } from './types'
 
 function needsAccount(rt: ReportType): boolean {
   return rt === 'pnl' || rt === 'orders'
@@ -16,10 +15,7 @@ interface Props {
   files: FileEntry[]
   skippedFiles: FileEntry[]
   showSkippedPanel: boolean
-  accounts: MarketplaceAccountLite[]
-  onSetAccount: (fileKey: string, accountId: string) => void
-  onApplyAccountToSelected: (accountId: string) => void
-  onSetMultiSelect: (fileKey: string, selected: boolean) => void
+  selectedAccountName: string | null
   onSetIncludeInImport: (fileKey: string, include: boolean) => void
   onRemoveFile: (fileKey: string) => void
   onReinclude: (fileKey: string) => void
@@ -30,12 +26,9 @@ interface Props {
 
 export function StepFileTable(props: Props) {
   const {
-    reportType, files, skippedFiles, showSkippedPanel, accounts,
-    onSetAccount, onApplyAccountToSelected, onSetMultiSelect, onSetIncludeInImport,
-    onRemoveFile, onReinclude, onToggleSkippedPanel, onBack, onNext,
+    reportType, files, skippedFiles, showSkippedPanel, selectedAccountName,
+    onSetIncludeInImport, onRemoveFile, onReinclude, onToggleSkippedPanel, onBack, onNext,
   } = props
-
-  const [bulkAccountId, setBulkAccountId] = useState<string>('')
 
   const requiresAccount = needsAccount(reportType)
   const checkedFiles = files.filter(f => f.includeInImport && f.status.kind === 'ready')
@@ -47,11 +40,17 @@ export function StepFileTable(props: Props) {
     return false
   }, [checkedFiles, requiresAccount])
 
-  const selectedCount = files.filter(f => f.multiSelectChecked).length
   const parsingCount = files.filter(f => f.status.kind === 'parsing').length
 
   return (
     <div className="space-y-4">
+      {requiresAccount && selectedAccountName && (
+        <p className="text-sm">
+          Account: <strong>{selectedAccountName}</strong>
+          <span className="text-muted-foreground text-xs ml-2">— all files assigned to this account. Go back to change.</span>
+        </p>
+      )}
+
       {parsingCount > 0 && (
         <p className="text-xs text-muted-foreground">
           Parsing {parsingCount} file{parsingCount === 1 ? '' : 's'}…
@@ -66,14 +65,13 @@ export function StepFileTable(props: Props) {
               <th className="px-2 py-2 text-left">Filename</th>
               <th className="px-2 py-2 text-left">Date Range</th>
               <th className="px-2 py-2 text-left">Sample SKUs</th>
-              {requiresAccount && <th className="px-2 py-2 text-left">Account</th>}
               <th className="px-2 py-2 text-left">Status</th>
               <th className="px-2 py-2 w-8"></th>
             </tr>
           </thead>
           <tbody>
             {files.length === 0 && (
-              <tr><td colSpan={7} className="px-2 py-4 text-center text-muted-foreground">No files yet</td></tr>
+              <tr><td colSpan={6} className="px-2 py-4 text-center text-muted-foreground">No files yet</td></tr>
             )}
             {files.map(f => {
               const isReady = f.status.kind === 'ready'
@@ -83,15 +81,7 @@ export function StepFileTable(props: Props) {
                 ? readyStatus.sampleSkus.slice(0, 3).join(', ') + (readyStatus.sampleSkus.length > 3 ? ` (+${readyStatus.sampleSkus.length - 3} more)` : '')
                 : '—'
               return (
-                <tr
-                  key={f.fileKey}
-                  className={f.multiSelectChecked ? 'bg-primary/5 ring-1 ring-primary/20' : ''}
-                  onClick={(e) => {
-                    if (e.shiftKey) {
-                      onSetMultiSelect(f.fileKey, !f.multiSelectChecked)
-                    }
-                  }}
-                >
+                <tr key={f.fileKey}>
                   <td className="px-2 py-2">
                     <Checkbox
                       checked={f.includeInImport}
@@ -102,21 +92,6 @@ export function StepFileTable(props: Props) {
                   <td className="px-2 py-2 truncate max-w-[200px]" title={f.fileName}>{f.fileName}</td>
                   <td className="px-2 py-2 text-xs whitespace-nowrap">{range}</td>
                   <td className="px-2 py-2 text-xs truncate max-w-[200px]" title={skuPreview}>{skuPreview}</td>
-                  {requiresAccount && (
-                    <td className="px-2 py-2">
-                      <Select
-                        value={f.marketplaceAccountId ?? ''}
-                        onValueChange={(v) => onSetAccount(f.fileKey, v)}
-                      >
-                        <SelectTrigger className="h-8 w-40 text-xs"><SelectValue placeholder="Select account" /></SelectTrigger>
-                        <SelectContent>
-                          {accounts.map(a => (
-                            <SelectItem key={a.id} value={a.id}>{a.account_name}</SelectItem>
-                          ))}
-                        </SelectContent>
-                      </Select>
-                    </td>
-                  )}
                   <td className="px-2 py-2 text-xs">
                     {f.status.kind === 'parsing' && <span className="flex items-center gap-1 text-muted-foreground"><Loader2 className="h-3 w-3 animate-spin" /> Parsing…</span>}
                     {f.status.kind === 'ready' && <span className="flex items-center gap-1 text-green-700"><CheckCircle2 className="h-3 w-3" /> Ready · {f.status.rowCount} rows</span>}
@@ -136,21 +111,10 @@ export function StepFileTable(props: Props) {
         </table>
       </div>
 
-      <div className="flex items-center justify-between text-xs text-muted-foreground">
+      <div className="flex items-center text-xs text-muted-foreground">
         <span>
           {checkedFiles.length} of {files.filter(f => f.status.kind === 'ready').length} valid files selected · ~{totalRows} rows total
-          {selectedCount > 0 && ` · ${selectedCount} selected for bulk-assign`}
         </span>
-        {selectedCount > 0 && requiresAccount && (
-          <div className="flex items-center gap-2">
-            <Select value={bulkAccountId} onValueChange={(v) => { setBulkAccountId(v); onApplyAccountToSelected(v) }}>
-              <SelectTrigger className="h-7 w-44 text-xs"><SelectValue placeholder="Apply account to selected" /></SelectTrigger>
-              <SelectContent>
-                {accounts.map(a => (<SelectItem key={a.id} value={a.id}>{a.account_name}</SelectItem>))}
-              </SelectContent>
-            </Select>
-          </div>
-        )}
       </div>
 
       {skippedFiles.length > 0 && (

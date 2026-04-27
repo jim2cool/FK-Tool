@@ -126,13 +126,14 @@ export function BulkImportDialog({ open, onOpenChange, onImportComplete, enabled
   const handleFilesDropped = useCallback((accepted: File[], rejected: { file: File; reason: string }[]) => {
     if (!state.reportType) return
     const rt = state.reportType
+    const accountId = state.selectedAccountId
     if (state.step === 'dropFiles') dispatch({ type: 'setStep', step: 'fileTable' })
 
     for (const { file, reason } of rejected) {
       const entry: FileEntry = {
         fileKey: uuid(), fileName: file.name, fileSize: file.size, fileLastModified: file.lastModified,
         rows: null, status: { kind: 'unsupported', reason }, marketplaceAccountId: null,
-        includeInImport: false, multiSelectChecked: false,
+        includeInImport: false,
       }
       dispatch({ type: 'addSkipped', file: entry })
     }
@@ -148,8 +149,8 @@ export function BulkImportDialog({ open, onOpenChange, onImportComplete, enabled
       const fileKey = uuid()
       const entry: FileEntry = {
         fileKey, fileName: file.name, fileSize: file.size, fileLastModified: file.lastModified,
-        rows: null, status: { kind: 'parsing' }, marketplaceAccountId: null,
-        includeInImport: false, multiSelectChecked: false,
+        rows: null, status: { kind: 'parsing' }, marketplaceAccountId: accountId,
+        includeInImport: false,
       }
       dispatch({ type: 'addFile', file: entry })
       ;(async () => {
@@ -172,7 +173,7 @@ export function BulkImportDialog({ open, onOpenChange, onImportComplete, enabled
         }
       })()
     }
-  }, [state.reportType, state.step, state.files, state.skippedFiles])
+  }, [state.reportType, state.selectedAccountId, state.step, state.files, state.skippedFiles])
 
   const checkOverlapAndConfirm = useCallback(async () => {
     if (!state.reportType) return
@@ -313,8 +314,12 @@ export function BulkImportDialog({ open, onOpenChange, onImportComplete, enabled
             onCancel={close}
           />
         )}
-        {state.step === 'dropFiles' && (
+        {state.step === 'dropFiles' && state.reportType && (
           <StepDropFiles
+            reportType={state.reportType}
+            accounts={flipkartAccounts}
+            selectedAccountId={state.selectedAccountId}
+            onSelectAccount={(id) => dispatch({ type: 'setSelectedAccount', accountId: id })}
             onFilesDropped={handleFilesDropped}
             onBack={() => dispatch({ type: 'setStep', step: 'reportType' })}
             currentFileCount={state.files.length + state.skippedFiles.length}
@@ -326,10 +331,7 @@ export function BulkImportDialog({ open, onOpenChange, onImportComplete, enabled
             files={state.files}
             skippedFiles={state.skippedFiles}
             showSkippedPanel={state.showSkippedPanel}
-            accounts={flipkartAccounts}
-            onSetAccount={(fileKey, accountId) => dispatch({ type: 'setAccount', fileKey, accountId })}
-            onApplyAccountToSelected={(accountId) => dispatch({ type: 'applyAccountToSelected', accountId })}
-            onSetMultiSelect={(fileKey, selected) => dispatch({ type: 'setMultiSelect', fileKey, selected })}
+            selectedAccountName={state.selectedAccountId ? (flipkartAccounts.find(a => a.id === state.selectedAccountId)?.account_name ?? null) : null}
             onSetIncludeInImport={(fileKey, include) => dispatch({ type: 'setIncludeInImport', fileKey, include })}
             onRemoveFile={(fileKey) => dispatch({ type: 'removeFile', fileKey })}
             onReinclude={(fileKey) => dispatch({ type: 'reincludeSkipped', fileKey })}

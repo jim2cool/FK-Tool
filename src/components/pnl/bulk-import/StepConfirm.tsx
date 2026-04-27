@@ -95,7 +95,7 @@ export function StepConfirm(props: Props) {
           onCheckedChange={(v) => onSetVerifiedAccountAssignment(!!v)}
           className="mt-0.5"
         />
-        <span>I&apos;ve verified each file is assigned to the correct account (sample SKUs in the file table can help)</span>
+        <span>I&apos;ve verified the account, date ranges, and file list above are correct</span>
       </label>
 
       <div className="flex justify-end gap-2 pt-2">

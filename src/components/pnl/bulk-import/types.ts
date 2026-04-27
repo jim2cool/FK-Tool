@@ -25,9 +25,8 @@ export interface FileEntry {
   fileLastModified: number                 // for dup-drop detection
   rows: AnyParsedRow[] | null              // null until parsed
   status: FileStatus
-  marketplaceAccountId: string | null      // user-assigned (P&L + Orders only)
+  marketplaceAccountId: string | null      // inherited from session-level selectedAccountId
   includeInImport: boolean                 // checkbox state
-  multiSelectChecked: boolean              // shift-click selection state
 }
 
 export type Step = 'reportType' | 'dropFiles' | 'fileTable' | 'confirm' | 'progress' | 'results'
@@ -35,6 +34,7 @@ export type Step = 'reportType' | 'dropFiles' | 'fileTable' | 'confirm' | 'progr
 export interface BulkImportState {
   step: Step
   reportType: ReportType | null
+  selectedAccountId: string | null          // session-wide account selection (P&L + Orders only)
   files: FileEntry[]                        // valid + main-table files
   skippedFiles: FileEntry[]                 // wrong-type, parse-error, empty, too-large
   showSkippedPanel: boolean                 // collapsible panel state

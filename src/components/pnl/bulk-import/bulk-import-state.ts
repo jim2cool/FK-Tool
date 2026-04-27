@@ -7,6 +7,7 @@ export type Action =
   | { type: 'reset' }
   | { type: 'setStep'; step: Step }
   | { type: 'setReportType'; reportType: ReportType }
+  | { type: 'setSelectedAccount'; accountId: string }
   | { type: 'addFile'; file: FileEntry }
   | { type: 'addSkipped'; file: FileEntry }
   | { type: 'fileParsed'; fileKey: string; rowCount: number; dateRange: { from: string; to: string }; sampleSkus: string[]; rows: FileEntry['rows'] }
@@ -15,10 +16,6 @@ export type Action =
   | { type: 'reincludeSkipped'; fileKey: string }
   | { type: 'removeFile'; fileKey: string }
   | { type: 'setIncludeInImport'; fileKey: string; include: boolean }
-  | { type: 'setAccount'; fileKey: string; accountId: string }
-  | { type: 'applyAccountToSelected'; accountId: string }
-  | { type: 'setMultiSelect'; fileKey: string; selected: boolean }
-  | { type: 'clearMultiSelect' }
   | { type: 'setShowSkippedPanel'; show: boolean }
   | { type: 'startOverlapCheck' }
   | { type: 'overlapCheckSuccess'; overlaps: BulkImportState['overlapsByFileKey'] }
@@ -33,6 +30,7 @@ export type Action =
 export const initialState: BulkImportState = {
   step: 'reportType',
   reportType: null,
+  selectedAccountId: null,
   files: [],
   skippedFiles: [],
   showSkippedPanel: true,
@@ -54,6 +52,12 @@ export function reducer(state: BulkImportState, action: Action): BulkImportState
       return { ...state, step: action.step }
     case 'setReportType':
       return { ...state, reportType: action.reportType }
+    case 'setSelectedAccount':
+      return {
+        ...state,
+        selectedAccountId: action.accountId,
+        files: state.files.map(f => ({ ...f, marketplaceAccountId: action.accountId })),
+      }
     case 'addFile':
       return { ...state, files: [...state.files, action.file] }
     case 'addSkipped':
@@ -107,23 +111,6 @@ export function reducer(state: BulkImportState, action: Action): BulkImportState
         ...state,
         files: state.files.map(f => f.fileKey === action.fileKey ? { ...f, includeInImport: action.include } : f),
       }
-    case 'setAccount':
-      return {
-        ...state,
-        files: state.files.map(f => f.fileKey === action.fileKey ? { ...f, marketplaceAccountId: action.accountId } : f),
-      }
-    case 'applyAccountToSelected':
-      return {
-        ...state,
-        files: state.files.map(f => f.multiSelectChecked ? { ...f, marketplaceAccountId: action.accountId } : f),
-      }
-    case 'setMultiSelect':
-      return {
-        ...state,
-        files: state.files.map(f => f.fileKey === action.fileKey ? { ...f, multiSelectChecked: action.selected } : f),
-      }
-    case 'clearMultiSelect':
-      return { ...state, files: state.files.map(f => ({ ...f, multiSelectChecked: false })) }
     case 'setShowSkippedPanel':
       return { ...state, showSkippedPanel: action.show }
     case 'startOverlapCheck':
