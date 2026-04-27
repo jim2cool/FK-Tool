@@ -14,6 +14,7 @@ export interface PnlImportResult {
   imported: number
   skipped: number
   enriched: number
+  mismatchedAccount: number
   unmappedSkus: string[]
   anomalyCount: number
   errors: string[]
@@ -36,7 +37,7 @@ export async function importPnlData(
 
   if (mappingsErr) {
     return {
-      imported: 0, skipped: 0, enriched: 0,
+      imported: 0, skipped: 0, enriched: 0, mismatchedAccount: 0,
       unmappedSkus: [], anomalyCount: 0,
       errors: [`Failed to load SKU mappings: ${mappingsErr.message}`],
     }
@@ -91,7 +92,7 @@ export async function importPnlData(
   }
 
   if (prepared.length === 0) {
-    return { imported: 0, skipped, enriched: 0, unmappedSkus: [...unmappedSkusSet], anomalyCount, errors }
+    return { imported: 0, skipped, enriched: 0, mismatchedAccount: 0, unmappedSkus: [...unmappedSkusSet], anomalyCount, errors }
   }
 
   // ── 4. Batch check existing orders ──
@@ -284,6 +285,7 @@ export async function importPnlData(
     imported,
     skipped,
     enriched,
+    mismatchedAccount: 0,
     unmappedSkus: [...unmappedSkusSet],
     anomalyCount,
     errors,
