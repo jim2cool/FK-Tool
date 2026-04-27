@@ -1,8 +1,9 @@
 'use client'
 
 import { useEffect, useState, useCallback } from 'react'
+import { useSearchParams, useRouter } from 'next/navigation'
 import { toast } from 'sonner'
-import { Upload, Settings2, Info, TrendingUp, TrendingDown, DollarSign, Package, Landmark } from 'lucide-react'
+import { Upload, Settings2, Info, TrendingUp, TrendingDown, DollarSign, Package, Landmark, Layers } from 'lucide-react'
 import { InfoTooltip } from '@/components/ui/info-tooltip'
 import { Button } from '@/components/ui/button'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
@@ -13,6 +14,7 @@ import PnlCashFlowTab from '@/components/pnl/PnlCashFlowTab'
 import { PnlInsightsTab } from '@/components/pnl/PnlInsightsTab'
 import { ActionDashboard } from '@/components/pnl/ActionDashboard'
 import { PnlImportDialog } from '@/components/pnl/PnlImportDialog'
+import { BulkImportDialog } from '@/components/pnl/BulkImportDialog'
 import { AnomalyRulesPanel } from '@/components/pnl/AnomalyRulesPanel'
 import { OverheadsDialog } from '@/components/pnl/OverheadsDialog'
 import type { PnlBreakdown, PnlSummary } from '@/lib/pnl/calculate'
@@ -116,6 +118,18 @@ export default function PnlPage() {
   const [showImport, setShowImport] = useState(false)
   const [showRules, setShowRules] = useState(false)
   const [showOverheads, setShowOverheads] = useState(false)
+  const [showBulkImport, setShowBulkImport] = useState(false)
+
+  const searchParams = useSearchParams()
+  const router = useRouter()
+
+  // Auto-open bulk dialog if landed via deep-link (?intent=bulk-import)
+  useEffect(() => {
+    if (searchParams.get('intent') === 'bulk-import') {
+      setShowBulkImport(true)
+      router.replace('/pnl')
+    }
+  }, [searchParams, router])
 
   useEffect(() => {
     fetch('/api/marketplace-accounts')
@@ -234,6 +248,10 @@ export default function PnlPage() {
           </Button>
           <Button variant="outline" onClick={() => setShowRules(true)}>
             <Settings2 className="h-4 w-4 mr-2" /> Anomaly Rules
+          </Button>
+          <Button variant="outline" onClick={() => setShowBulkImport(true)}>
+            <Layers className="h-4 w-4 mr-2" />
+            Bulk Import
           </Button>
           <Button onClick={() => setShowImport(true)}>
             <Upload className="h-4 w-4 mr-2" /> Import Data
@@ -452,6 +470,14 @@ export default function PnlPage() {
         onOpenChange={setShowImport}
         onImportComplete={() => {
           setShowImport(false)
+          loadAll()
+        }}
+      />
+      <BulkImportDialog
+        open={showBulkImport}
+        onOpenChange={setShowBulkImport}
+        onImportComplete={() => {
+          setShowBulkImport(false)
           loadAll()
         }}
       />
