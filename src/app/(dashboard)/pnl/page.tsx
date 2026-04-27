@@ -1,7 +1,6 @@
 'use client'
 
 import { useEffect, useState, useCallback } from 'react'
-import { useSearchParams, useRouter } from 'next/navigation'
 import { toast } from 'sonner'
 import { Upload, Settings2, Info, TrendingUp, TrendingDown, DollarSign, Package, Landmark, Layers } from 'lucide-react'
 import { InfoTooltip } from '@/components/ui/info-tooltip'
@@ -120,16 +119,13 @@ export default function PnlPage() {
   const [showOverheads, setShowOverheads] = useState(false)
   const [showBulkImport, setShowBulkImport] = useState(false)
 
-  const searchParams = useSearchParams()
-  const router = useRouter()
-
   // Auto-open bulk dialog if landed via deep-link (?intent=bulk-import)
   useEffect(() => {
-    if (searchParams.get('intent') === 'bulk-import') {
+    if (typeof window !== 'undefined' && new URLSearchParams(window.location.search).get('intent') === 'bulk-import') {
       setShowBulkImport(true)
-      router.replace('/pnl')
+      window.history.replaceState(null, '', '/pnl')
     }
-  }, [searchParams, router])
+  }, [])
 
   useEffect(() => {
     fetch('/api/marketplace-accounts')
