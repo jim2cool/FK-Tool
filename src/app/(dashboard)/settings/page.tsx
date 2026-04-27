@@ -155,6 +155,26 @@ export default function SettingsPage() {
     }
   }
 
+  async function forceDeleteAccount(acct: MarketplaceAccount) {
+    const confirmed = window.confirm(
+      `Permanently delete "${acct.account_name}"?\n\nThis will erase ALL associated orders, P&L records, SKU mappings, and dispatch history. This cannot be undone.`
+    )
+    if (!confirmed) return
+
+    const res = await fetch('/api/marketplace-accounts', {
+      method: 'DELETE',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ id: acct.id, force: true }),
+    })
+    const body = await res.json().catch(() => ({}))
+    if (res.ok) {
+      toast.success(`"${acct.account_name}" permanently deleted`)
+      loadArchivedAccounts()
+    } else {
+      toast.error(body.error ?? 'Failed to permanently delete account')
+    }
+  }
+
   return (
     <div className="space-y-6">
       <div>
@@ -272,7 +292,17 @@ export default function SettingsPage() {
                           <span className="text-xs">· Archived {new Date(acct.archived_at).toLocaleDateString('en-IN', { year: 'numeric', month: 'short', day: 'numeric' })}</span>
                         )}
                       </div>
-                      <Button variant="ghost" size="sm" onClick={() => restoreAccount(acct)}>Restore</Button>
+                      <div className="flex items-center gap-1">
+                        <Button variant="ghost" size="sm" onClick={() => restoreAccount(acct)}>Restore</Button>
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          className="text-destructive hover:text-destructive hover:bg-destructive/10"
+                          onClick={() => forceDeleteAccount(acct)}
+                        >
+                          Delete permanently
+                        </Button>
+                      </div>
                     </li>
                   ))}
                 </ul>
