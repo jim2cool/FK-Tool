@@ -100,6 +100,7 @@ export async function DELETE(request: Request) {
 
 interface PatchBody {
   id?: string
+  action?: 'restore'
   account_name?: string
   expected_current_name?: string
   force_recycle?: boolean
@@ -115,6 +116,62 @@ export async function PATCH(request: Request) {
     if (!body.id) {
       return NextResponse.json({ error: 'id is required' }, { status: 400 })
     }
+
+    // === Restore branch ===
+    if (body.action === 'restore') {
+      // Read current row scoped to tenant
+      const { data: current, error: readErr } = await supabase
+        .from('marketplace_accounts')
+        .select('id, platform, account_name, archived_at')
+        .eq('id', body.id)
+        .eq('tenant_id', tenantId)
+        .single()
+      if (readErr || !current) {
+        return NextResponse.json({ error: 'Account not found' }, { status: 404 })
+      }
+      if (!current.archived_at) {
+        return NextResponse.json({ error: 'Account is not archived' }, { status: 400 })
+      }
+
+      // Check name-collision against active accounts
+      const normalizedName = normalizeAccountName(current.account_name)
+      if (!normalizedName) {
+        return NextResponse.json({ error: 'Account name is invalid (cannot restore)' }, { status: 400 })
+      }
+      const { data: collision } = await supabase
+        .from('marketplace_accounts')
+        .select('id, account_name')
+        .eq('tenant_id', tenantId)
+        .eq('platform', current.platform)
+        .is('archived_at', null)
+        .neq('id', body.id)
+      type Row = { id: string; account_name: string }
+      const conflict = (collision as Row[] | null)?.find(r =>
+        normalizeAccountName(r.account_name) === normalizedName,
+      )
+      if (conflict) {
+        return NextResponse.json(
+          {
+            error: 'name_in_use_by_active_account',
+            conflicting_account_name: conflict.account_name,
+          },
+          { status: 409 },
+        )
+      }
+
+      // Restore
+      const { data: updated, error: updErr } = await supabase
+        .from('marketplace_accounts')
+        .update({ archived_at: null })
+        .eq('id', body.id)
+        .eq('tenant_id', tenantId)
+        .select()
+        .single()
+      if (updErr) throw updErr
+      return NextResponse.json(updated)
+    }
+
+    // === (existing rename logic continues below) ===
     const normalizedNew = normalizeAccountName(body.account_name)
     if (!normalizedNew) {
       return NextResponse.json(
