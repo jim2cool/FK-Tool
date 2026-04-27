@@ -58,9 +58,88 @@ export async function DELETE(request: Request) {
   try {
     const tenantId = await getTenantId()
     const supabase = await createClient()
-    const { id } = await request.json()
+    const { id, force } = await request.json()
     if (!id) {
       return NextResponse.json({ error: 'id is required' }, { status: 400 })
+    }
+
+    // === Force-delete branch (archived accounts only) ===
+    if (force === true) {
+      // 1. Verify the account exists, belongs to tenant, and is archived
+      const { data: acct, error: acctErr } = await supabase
+        .from('marketplace_accounts')
+        .select('id, archived_at')
+        .eq('id', id)
+        .eq('tenant_id', tenantId)
+        .single()
+      if (acctErr || !acct) {
+        return NextResponse.json({ error: 'Account not found' }, { status: 404 })
+      }
+      if (!acct.archived_at) {
+        return NextResponse.json(
+          { error: 'Only archived accounts can be permanently deleted. Archive the account first.' },
+          { status: 400 },
+        )
+      }
+
+      // 2. Fetch order IDs so we can delete their dependents first
+      const { data: orderRows } = await supabase
+        .from('orders')
+        .select('id')
+        .eq('marketplace_account_id', id)
+        .eq('tenant_id', tenantId)
+      const orderIds = (orderRows ?? []).map((o: { id: string }) => o.id)
+
+      // Step A: delete leaf tables that FK → orders (NO ACTION rules)
+      if (orderIds.length > 0) {
+        const { error: retErr } = await supabase
+          .from('returns')
+          .delete()
+          .in('order_id', orderIds)
+        if (retErr) throw retErr
+
+        // order_financials has CASCADE on order_id but we delete it explicitly to be safe
+        const { error: ofErr } = await supabase
+          .from('order_financials')
+          .delete()
+          .in('order_id', orderIds)
+        if (ofErr) throw ofErr
+      }
+
+      // Step B: delete dispatches (FK → marketplace_accounts, NO ACTION)
+      const { error: dispErr } = await supabase
+        .from('dispatches')
+        .delete()
+        .eq('marketplace_account_id', id)
+      if (dispErr) throw dispErr
+
+      // Step C: delete orders (FK → marketplace_accounts, NO ACTION)
+      const { error: ordErr } = await supabase
+        .from('orders')
+        .delete()
+        .eq('marketplace_account_id', id)
+        .eq('tenant_id', tenantId)
+      if (ordErr) throw ordErr
+
+      // Step D: delete sku_mappings (FK → marketplace_accounts, NO ACTION)
+      const { error: mapErr } = await supabase
+        .from('sku_mappings')
+        .delete()
+        .eq('marketplace_account_id', id)
+        .eq('tenant_id', tenantId)
+      if (mapErr) throw mapErr
+
+      // Step E: delete the account itself
+      // dp_orders, dp_listing, dp_cogs, dp_pnl_history, dp_upload_log all have
+      // CASCADE on marketplace_account_id and will be removed automatically.
+      const { error: finalDelErr } = await supabase
+        .from('marketplace_accounts')
+        .delete()
+        .eq('id', id)
+        .eq('tenant_id', tenantId)
+      if (finalDelErr) throw finalDelErr
+
+      return NextResponse.json({ force_deleted: true })
     }
 
     // Try the hard delete first
