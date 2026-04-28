@@ -179,7 +179,8 @@ export async function DELETE(request: Request) {
 
 interface PatchBody {
   id?: string
-  action?: 'restore'
+  action?: 'restore' | 'set_default_warehouse'
+  warehouse_id?: string | null
   account_name?: string
   expected_current_name?: string
   force_recycle?: boolean
@@ -242,6 +243,33 @@ export async function PATCH(request: Request) {
       const { data: updated, error: updErr } = await supabase
         .from('marketplace_accounts')
         .update({ archived_at: null })
+        .eq('id', body.id)
+        .eq('tenant_id', tenantId)
+        .select()
+        .single()
+      if (updErr) throw updErr
+      return NextResponse.json(updated)
+    }
+
+    // === Set default warehouse branch ===
+    if (body.action === 'set_default_warehouse') {
+      const warehouseId = body.warehouse_id ?? null
+
+      if (warehouseId !== null) {
+        const { data: wh } = await supabase
+          .from('warehouses')
+          .select('id')
+          .eq('id', warehouseId)
+          .eq('tenant_id', tenantId)
+          .single()
+        if (!wh) {
+          return NextResponse.json({ error: 'Warehouse not found' }, { status: 404 })
+        }
+      }
+
+      const { data: updated, error: updErr } = await supabase
+        .from('marketplace_accounts')
+        .update({ default_warehouse_id: warehouseId })
         .eq('id', body.id)
         .eq('tenant_id', tenantId)
         .select()

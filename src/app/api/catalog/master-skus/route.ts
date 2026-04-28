@@ -65,6 +65,44 @@ export async function GET(request: Request) {
       }
     }
 
+    // Also pull warehouses from account mappings:
+    // sku_mappings → marketplace_accounts.default_warehouse_id → warehouses
+    const { data: acctMaps } = await supabase
+      .from('sku_mappings')
+      .select('master_sku_id, marketplace_accounts(default_warehouse_id)')
+      .eq('tenant_id', tenantId)
+      .not('master_sku_id', 'is', null)
+
+    const whIdsFromAccounts = new Set<string>()
+    for (const m of acctMaps ?? []) {
+      const ma = m.marketplace_accounts as unknown as { default_warehouse_id: string | null }[] | null
+      const wid = (Array.isArray(ma) ? ma[0] : ma)?.default_warehouse_id
+      if (wid) whIdsFromAccounts.add(wid)
+    }
+
+    let acctWhDetails: Record<string, { id: string; name: string; location: string | null }> = {}
+    if (whIdsFromAccounts.size > 0) {
+      const { data: whs } = await supabase
+        .from('warehouses')
+        .select('id, name, location')
+        .in('id', Array.from(whIdsFromAccounts))
+        .eq('tenant_id', tenantId)
+      for (const w of whs ?? []) acctWhDetails[w.id] = w
+    }
+
+    for (const m of acctMaps ?? []) {
+      const skuId = m.master_sku_id as string | null
+      const ma = m.marketplace_accounts as unknown as { default_warehouse_id: string | null }[] | null
+      const wid = (Array.isArray(ma) ? ma[0] : ma)?.default_warehouse_id
+      if (!skuId || !wid) continue
+      const wh = acctWhDetails[wid]
+      if (!wh) continue
+      if (!summaryMap[skuId]) summaryMap[skuId] = []
+      if (!summaryMap[skuId].some(s => s.warehouse_id === wh.id)) {
+        summaryMap[skuId].push({ warehouse_id: wh.id, warehouse_name: wh.name, location: wh.location })
+      }
+    }
+
     // Separate variants from top-level rows
     const topLevel = (allSkus ?? []).filter(s => s.parent_id === null)
     const variantRows = (allSkus ?? []).filter(s => s.parent_id !== null)

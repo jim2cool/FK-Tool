@@ -58,6 +58,7 @@ export interface MarketplaceAccount {
   account_name: string
   mode: ConnectorMode
   organization_id: string | null
+  default_warehouse_id: string | null
   created_at: string
   previous_names: PreviousName[]
   archived_at: string | null

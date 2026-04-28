@@ -155,6 +155,20 @@ export default function SettingsPage() {
     }
   }
 
+  async function setAccountWarehouse(accountId: string, warehouseId: string | null) {
+    const res = await fetch('/api/marketplace-accounts', {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ id: accountId, action: 'set_default_warehouse', warehouse_id: warehouseId }),
+    })
+    if (res.ok) {
+      const updated: MarketplaceAccount = await res.json()
+      setAccounts(prev => prev.map(a => a.id === accountId ? updated : a))
+    } else {
+      toast.error('Failed to update warehouse mapping')
+    }
+  }
+
   async function forceDeleteAccount(acct: MarketplaceAccount) {
     const confirmed = window.confirm(
       `Permanently delete "${acct.account_name}"?\n\nThis will erase ALL associated orders, P&L records, SKU mappings, and dispatch history. This cannot be undone.`
@@ -238,6 +252,15 @@ export default function SettingsPage() {
           {accounts.length === 0 && (
             <p className="text-sm text-muted-foreground">No accounts yet.</p>
           )}
+          {accounts.length > 0 && (
+            <div className="flex items-center justify-between text-xs text-muted-foreground pb-1 border-b">
+              <span>Account</span>
+              <span className="flex items-center gap-1 mr-[84px]">
+                Default warehouse
+                <InfoTooltip content="The warehouse this account ships from. Used to populate warehouse data in the master catalog for mapped SKUs." />
+              </span>
+            </div>
+          )}
           {accounts.map(acct => {
             const previousCount = (acct.previous_names ?? []).length
             const mostRecentPrev = previousCount > 0 ? acct.previous_names[acct.previous_names.length - 1] : null
@@ -245,13 +268,24 @@ export default function SettingsPage() {
               ? `Previously: ${mostRecentPrev.name}${previousCount > 1 ? ` (+${previousCount - 1} earlier)` : ''}`
               : ''
             return (
-              <div key={acct.id} className="flex items-center justify-between py-1">
-                <div className="flex items-center gap-2">
-                  <Badge variant="outline">{PLATFORM_LABELS[acct.platform]}</Badge>
-                  <span className="text-sm">{acct.account_name}</span>
+              <div key={acct.id} className="flex items-center justify-between gap-3 py-1.5">
+                <div className="flex items-center gap-2 min-w-0">
+                  <Badge variant="outline" className="shrink-0">{PLATFORM_LABELS[acct.platform]}</Badge>
+                  <span className="text-sm truncate">{acct.account_name}</span>
                   {tooltipContent && <InfoTooltip content={tooltipContent} />}
                 </div>
-                <div className="flex items-center gap-1">
+                <div className="flex items-center gap-2 shrink-0">
+                  <select
+                    className="h-7 rounded-md border border-input bg-transparent px-2 py-0.5 text-xs shadow-sm"
+                    value={acct.default_warehouse_id ?? ''}
+                    onChange={e => setAccountWarehouse(acct.id, e.target.value || null)}
+                    title="Default warehouse for this account"
+                  >
+                    <option value="">No warehouse</option>
+                    {warehouses.map(wh => (
+                      <option key={wh.id} value={wh.id}>{wh.name}</option>
+                    ))}
+                  </select>
                   <Button
                     variant="ghost"
                     size="sm"
