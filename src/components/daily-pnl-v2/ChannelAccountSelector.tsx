@@ -24,7 +24,7 @@ export function ChannelAccountSelector({ accounts, selectedIds, onChange }: Prop
 
   const triggerLabel = selectedIds.length === 0
     ? 'Select accounts'
-    : selectedIds.length === flipkart.length
+    : flipkart.length > 0 && selectedIds.length === flipkart.length
       ? 'All accounts'
       : `${selectedIds.length} accounts`
 
