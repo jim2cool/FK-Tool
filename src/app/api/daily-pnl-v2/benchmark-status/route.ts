@@ -59,39 +59,35 @@ export async function GET(request: NextRequest) {
           .maybeSingle(),
       ])
 
-      // Step 1: Get order_item_ids + order_dates for this account in the benchmark window.
-      // Use 5000 rows so we don't under-count large accounts.
+      // Step 1: Get order UUIDs + dates for this account in the benchmark window.
       const { data: acctOrders } = await supabase
         .from('orders')
-        .select('order_item_id, order_date')
+        .select('id, order_date')
         .eq('tenant_id', tenantId)
         .eq('marketplace_account_id', acct.id)
         .gte('order_date', bmWindow.from)
         .lte('order_date', bmWindow.to)
         .limit(5000)
 
-      const acctOrderItemIds = (acctOrders ?? [])
-        .map(r => r.order_item_id)
-        .filter((id): id is string => id != null)
+      const acctOrderUUIDs = (acctOrders ?? []).map(r => r.id)
 
       // Step 2: Count how many of those orders have order_financials rows.
-      // order_financials has no tenant_id — tenant scoping flows through the orders join
-      // and the marketplace_accounts ownership check above.
+      // order_financials links to orders via order_id (UUID), NOT order_item_id.
       let rowCount = 0
       const availableMonthsSet = new Set<string>()
 
-      if (acctOrderItemIds.length > 0) {
+      if (acctOrderUUIDs.length > 0) {
         const { data: finRows } = await supabase
           .from('order_financials')
-          .select('order_item_id')
-          .in('order_item_id', acctOrderItemIds)
+          .select('order_id')
+          .in('order_id', acctOrderUUIDs)
 
-        const finIds = new Set((finRows ?? []).map(r => r.order_item_id))
-        rowCount = finIds.size
+        const finUUIDs = new Set((finRows ?? []).map(r => r.order_id))
+        rowCount = finUUIDs.size
 
         // Derive available months only from orders that have corresponding financials
         for (const o of (acctOrders ?? [])) {
-          if (o.order_date && o.order_item_id && finIds.has(o.order_item_id)) {
+          if (o.order_date && finUUIDs.has(o.id)) {
             availableMonthsSet.add(o.order_date.slice(0, 7))
           }
         }

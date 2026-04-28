@@ -165,6 +165,11 @@ function computeResultsForSlice(
       total_pnl != null && total_cogs != null && delivery_rate != null && total_cogs * delivery_rate > 0
         ? total_pnl / (total_cogs * delivery_rate)
         : null
+    const gmv = avg_sell != null ? agg.quantity * avg_sell : null
+    const est_total_settlement =
+      delivery_rate != null && avg_bank != null
+        ? agg.quantity * delivery_rate * avg_bank
+        : null
 
     consolidated.push({
       master_product:           agg.master,
@@ -180,6 +185,8 @@ function computeResultsForSlice(
       est_pnl_pct,
       return_on_cogs,
       low_confidence,
+      gmv,
+      est_total_settlement,
     })
   }
   consolidated.sort((a, b) => (b.total_est_pnl ?? 0) - (a.total_est_pnl ?? 0))
@@ -251,47 +258,67 @@ export async function GET(request: NextRequest) {
         .in('marketplace_account_id', requestedIds),
     ])
 
-    // Fetch benchmark from order_financials:
-    // Step 1 — get order IDs for these accounts within the benchmark window
+    // Load sku_mappings to resolve master_sku_id → platform_sku (for cogsMap lookup)
+    const { data: skuMappingsRows } = await supabase
+      .from('sku_mappings')
+      .select('master_sku_id, platform_sku')
+      .eq('tenant_id', tenantId)
+      .eq('platform', 'flipkart')
+    const masterSkuToPlatformSku = new Map(
+      (skuMappingsRows ?? [])
+        .filter(m => m.master_sku_id != null)
+        .map(m => [m.master_sku_id as string, m.platform_sku]),
+    )
+
+    // Fetch benchmark from orders + order_financials:
+    // Step 1 — get orders (with unit counts) for these accounts within the benchmark window.
+    // orders.master_sku_id → sku_mappings.platform_sku gives us the sku_name for cogsMap lookup.
+    // order_financials links via order_id (UUID), NOT order_item_id (string).
     const { data: benchmarkOrderRows } = await supabase
       .from('orders')
-      .select('order_item_id, marketplace_account_id, order_date')
+      .select('id, marketplace_account_id, master_sku_id, gross_units, rto_units, rvp_units, cancelled_units')
       .eq('tenant_id', tenantId)
       .in('marketplace_account_id', requestedIds)
       .gte('order_date', bmWindow.from)
       .lte('order_date', bmWindow.to)
       .limit(10000)
 
-    const benchmarkOrderItemIds = (benchmarkOrderRows ?? [])
-      .map(r => r.order_item_id)
-      .filter((id): id is string => id != null)
+    const benchmarkOrderUUIDs = (benchmarkOrderRows ?? []).map(r => r.id)
     const benchmarkTruncated = (benchmarkOrderRows ?? []).length >= 10000
 
-    // Build map from order_item_id → marketplace_account_id for benchmark scoping
-    const orderToAccount = new Map<string, string>()
-    for (const r of (benchmarkOrderRows ?? [])) {
-      if (r.order_item_id && r.marketplace_account_id) {
-        orderToAccount.set(r.order_item_id, r.marketplace_account_id)
-      }
-    }
-
-    // Step 2 — fetch order_financials for those order item IDs
+    // Step 2 — fetch order_financials for those order UUIDs (for return fee data)
     let allBenchmarkRows: BenchmarkRow[] = []
-    if (benchmarkOrderItemIds.length > 0) {
-      const { data: finRows } = await supabase
-        .from('order_financials')
-        .select('order_item_id, sku_name, gross_units, rto_units, rvp_units, cancelled_units, total_expenses')
-        .in('order_item_id', benchmarkOrderItemIds)
+    if (benchmarkOrderUUIDs.length > 0) {
+      const finRowsAll: Array<{ order_id: string; reverse_shipping_fee: number; forward_shipping_fee: number; pick_pack_fee: number }> = []
+      for (let i = 0; i < benchmarkOrderUUIDs.length; i += 500) {
+        const chunk = benchmarkOrderUUIDs.slice(i, i + 500)
+        const { data: finChunk } = await supabase
+          .from('order_financials')
+          .select('order_id, reverse_shipping_fee, forward_shipping_fee, pick_pack_fee')
+          .in('order_id', chunk)
+        if (finChunk) finRowsAll.push(...(finChunk as typeof finRowsAll))
+      }
+      const finByOrderId = new Map(finRowsAll.map(f => [f.order_id, f]))
 
-      allBenchmarkRows = (finRows ?? []).map(r => ({
-        marketplace_account_id: orderToAccount.get(r.order_item_id) ?? null,
-        sku_name:               r.sku_name ?? '',
-        gross_units:            r.gross_units,
-        rto_units:              r.rto_units,
-        rvp_units:              r.rvp_units,
-        cancelled_units:        r.cancelled_units,
-        total_expenses:         r.total_expenses,
-      }))
+      allBenchmarkRows = (benchmarkOrderRows ?? [])
+        .filter(r => finByOrderId.has(r.id))
+        .map(r => {
+          const fin = finByOrderId.get(r.id)!
+          const sku_name = masterSkuToPlatformSku.get(r.master_sku_id ?? '') ?? ''
+          // Return fee = logistics fees charged on returned orders
+          const total_expenses = Math.abs(
+            (fin.reverse_shipping_fee ?? 0) + (fin.forward_shipping_fee ?? 0) + (fin.pick_pack_fee ?? 0),
+          )
+          return {
+            marketplace_account_id: r.marketplace_account_id ?? null,
+            sku_name,
+            gross_units:     r.gross_units,
+            rto_units:       r.rto_units,
+            rvp_units:       r.rvp_units,
+            cancelled_units: r.cancelled_units,
+            total_expenses,
+          }
+        })
     }
 
     const warnings: string[] = []
