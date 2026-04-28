@@ -108,11 +108,11 @@ export async function importOrdersReport(
     }
   }
 
-  // ── 5. Batch INSERT new orders (chunks of 100) ──
+  // ── 5. Batch INSERT new orders (chunks of 500) ──
   let imported = 0
 
-  for (let i = 0; i < newInserts.length; i += 100) {
-    const chunk = newInserts.slice(i, i + 100)
+  for (let i = 0; i < newInserts.length; i += 500) {
+    const chunk = newInserts.slice(i, i + 500)
     const insertRows = chunk.map((p) => ({
       tenant_id: tenantId,
       platform_order_id: p.row.platformOrderId,
@@ -143,29 +143,35 @@ export async function importOrdersReport(
     }
   }
 
-  // ── 6. Update existing orders with lifecycle dates ──
+  // ── 6. Batch-upsert existing orders with lifecycle dates (chunks of 500) ──
+  // Uses upsert on 'id' so PostgreSQL only updates the specified columns,
+  // leaving marketplace_account_id / master_sku_id etc. untouched when not provided.
   let updated = 0
 
-  for (const { prepared: p, existingOrderId } of updates) {
-    const { error: updateErr } = await supabase
-      .from('orders')
-      .update({
-        status: p.row.orderStatus,
-        fulfillment_type: p.row.fulfillmentType,
-        dispatch_date: p.row.dispatchDate,
-        delivery_date: p.row.deliveryDate,
-        cancellation_date: p.row.cancellationDate,
-        cancellation_reason: p.row.cancellationReason,
-        return_request_date: p.row.returnRequestDate,
-        ...(p.masterSkuId ? { master_sku_id: p.masterSkuId } : {}),
-        ...(p.comboProductId ? { combo_product_id: p.comboProductId } : {}),
-      })
-      .eq('id', existingOrderId)
+  const updateRows = updates.map(({ prepared: p, existingOrderId }) => ({
+    id: existingOrderId,
+    tenant_id: tenantId,
+    status: p.row.orderStatus,
+    fulfillment_type: p.row.fulfillmentType,
+    dispatch_date: p.row.dispatchDate,
+    delivery_date: p.row.deliveryDate,
+    cancellation_date: p.row.cancellationDate,
+    cancellation_reason: p.row.cancellationReason,
+    return_request_date: p.row.returnRequestDate,
+    ...(p.masterSkuId ? { master_sku_id: p.masterSkuId } : {}),
+    ...(p.comboProductId ? { combo_product_id: p.comboProductId } : {}),
+  }))
 
-    if (updateErr) {
-      errors.push(`Update order ${p.row.orderItemId} failed: ${updateErr.message}`)
+  for (let i = 0; i < updateRows.length; i += 500) {
+    const chunk = updateRows.slice(i, i + 500)
+    const { error: upsertErr } = await supabase
+      .from('orders')
+      .upsert(chunk, { onConflict: 'id' })
+
+    if (upsertErr) {
+      errors.push(`Batch update failed: ${upsertErr.message}`)
     } else {
-      updated++
+      updated += chunk.length
     }
   }
 
