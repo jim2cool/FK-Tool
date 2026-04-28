@@ -112,11 +112,12 @@ function DropZone({
 }
 
 export function UploadPanel({
-  marketplaceAccountId, platform, onAnyUploaded,
+  marketplaceAccountId, platform, onAnyUploaded, onlyShow,
 }: {
   marketplaceAccountId: string
   platform: Platform
   onAnyUploaded: () => void
+  onlyShow?: Array<ReportType>
 }) {
   const [states, setStates] = useState<Record<ReportType, UploadState>>({
     orders: { status: 'idle' }, listing: { status: 'idle' },
@@ -131,9 +132,11 @@ export function UploadPanel({
     )
   }
 
+  const visibleReports = onlyShow ? REPORTS.filter(cfg => onlyShow.includes(cfg.type)) : REPORTS
+
   return (
     <div className="grid grid-cols-2 gap-3">
-      {REPORTS.map(cfg => (
+      {visibleReports.map(cfg => (
         <DropZone
           key={cfg.type}
           config={cfg}
