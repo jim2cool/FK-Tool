@@ -2,7 +2,7 @@
 import Link from 'next/link'
 import { usePathname } from 'next/navigation'
 import { useMemo } from 'react'
-import { LayoutDashboard, Package, ShoppingCart, Receipt, Box, Tags, Calculator, CalendarClock, Upload, BarChart3, Settings, ClipboardList, Truck, RotateCcw } from 'lucide-react'
+import { LayoutDashboard, Package, ShoppingCart, Receipt, Box, Tags, Calculator, CalendarClock, Upload, BarChart3, Settings, ClipboardList, Truck, RotateCcw, Sparkles } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { useUserAccess } from '@/hooks/use-user-access'
 
@@ -18,6 +18,7 @@ const navItems: NavEntry[] = [
   { type: 'link', href: '/returns', label: 'Returns & Claims', icon: RotateCcw },
   { type: 'link', href: '/labels', label: 'Labels', icon: Tags },
   { type: 'link', href: '/daily-pnl', label: 'Daily P&L', icon: CalendarClock },
+  { type: 'link', href: '/daily-pnl-v2', label: 'Daily P&L v2 (beta)', icon: Sparkles },
   { type: 'separator' },
   { type: 'link', href: '/catalog', label: 'Master Catalog', icon: Package },
   { type: 'link', href: '/purchases', label: 'Purchases', icon: ShoppingCart },
