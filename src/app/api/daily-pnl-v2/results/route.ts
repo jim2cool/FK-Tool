@@ -229,9 +229,6 @@ export async function GET(request: NextRequest) {
     if (!owned || owned.length !== requestedIds.length) {
       return NextResponse.json({ error: 'One or more accounts not found' }, { status: 403 })
     }
-    const accountNameById = new Map(owned.map(a => [a.id, a.account_name]))
-    void accountNameById // used for future per-account labelling
-
     const bmWindow = computeBenchmarkWindow(new Date())
 
     // Fetch all data in parallel across all accounts
@@ -268,6 +265,7 @@ export async function GET(request: NextRequest) {
     const benchmarkOrderItemIds = (benchmarkOrderRows ?? [])
       .map(r => r.order_item_id)
       .filter((id): id is string => id != null)
+    const benchmarkTruncated = (benchmarkOrderRows ?? []).length >= 10000
 
     // Build map from order_item_id → marketplace_account_id for benchmark scoping
     const orderToAccount = new Map<string, string>()
@@ -297,6 +295,10 @@ export async function GET(request: NextRequest) {
     }
 
     const warnings: string[] = []
+
+    if (benchmarkTruncated) {
+      warnings.push('Benchmark window data exceeds 10,000 orders — delivery rate estimates may be understated. Date range may need to be narrowed.')
+    }
 
     // Per-account results
     const perAccount = owned.map(acct => {
