@@ -120,9 +120,10 @@ export async function parseOrdersReport(buffer: ArrayBuffer): Promise<ParsedOrde
   const workbook = XLSX.read(buffer, { type: 'array', cellDates: true })
 
   const sheetName =
-    workbook.SheetNames.find(
-      (n) => n.toLowerCase().replace(/[^a-z]/g, '') === 'allorders'
-    ) ?? workbook.SheetNames[0]
+    workbook.SheetNames.find((n) => {
+      const norm = n.toLowerCase().replace(/[^a-z]/g, '')
+      return norm === 'allorders' || norm === 'orders'
+    }) ?? workbook.SheetNames[0]
 
   const sheet = workbook.Sheets[sheetName]
   if (!sheet) throw new Error('No sheet found in workbook')
