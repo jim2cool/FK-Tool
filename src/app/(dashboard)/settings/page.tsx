@@ -13,7 +13,7 @@ import { useUserAccess } from '@/hooks/use-user-access'
 import { TeamSection } from '@/components/settings/TeamSection'
 import { EditAccountDialog } from '@/components/settings/EditAccountDialog'
 import { InfoTooltip } from '@/components/ui/info-tooltip'
-import type { Warehouse, MarketplaceAccount, Platform } from '@/types'
+import type { Warehouse, MarketplaceAccount, AccountWarehouseMapping, Platform } from '@/types'
 
 const PLATFORMS: Platform[] = ['flipkart', 'amazon', 'd2c']
 const PLATFORM_LABELS: Record<Platform, string> = {
@@ -26,6 +26,7 @@ export default function SettingsPage() {
   const { isOwner } = useUserAccess()
   const [warehouses, setWarehouses] = useState<Warehouse[]>([])
   const [accounts, setAccounts] = useState<MarketplaceAccount[]>([])
+  const [mappings, setMappings] = useState<Set<string>>(new Set())
   const [whName, setWhName] = useState('')
   const [whLocation, setWhLocation] = useState('')
   const [acctName, setAcctName] = useState('')
@@ -34,6 +35,8 @@ export default function SettingsPage() {
   const [editingAccount, setEditingAccount] = useState<MarketplaceAccount | null>(null)
   const [archivedAccounts, setArchivedAccounts] = useState<MarketplaceAccount[]>([])
   const [showArchived, setShowArchived] = useState(false)
+
+  const mappingKey = (accountId: string, warehouseId: string) => `${accountId}:${warehouseId}`
 
   const loadWarehouses = useCallback(async () => {
     const res = await fetch('/api/warehouses')
@@ -53,11 +56,47 @@ export default function SettingsPage() {
     }
   }, [])
 
+  const loadMappings = useCallback(async () => {
+    const res = await fetch('/api/account-warehouse-mappings')
+    if (res.ok) {
+      const data: AccountWarehouseMapping[] = await res.json()
+      setMappings(new Set(data.map(m => mappingKey(m.marketplace_account_id, m.warehouse_id))))
+    }
+  }, [])
+
   useEffect(() => {
     loadWarehouses()
     loadAccounts()
     loadArchivedAccounts()
-  }, [loadWarehouses, loadAccounts, loadArchivedAccounts])
+    loadMappings()
+  }, [loadWarehouses, loadAccounts, loadArchivedAccounts, loadMappings])
+
+  async function toggleMapping(accountId: string, warehouseId: string) {
+    const key = mappingKey(accountId, warehouseId)
+    const exists = mappings.has(key)
+
+    // Optimistic update
+    setMappings(prev => {
+      const next = new Set(prev)
+      exists ? next.delete(key) : next.add(key)
+      return next
+    })
+
+    const res = await fetch('/api/account-warehouse-mappings', {
+      method: exists ? 'DELETE' : 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ marketplace_account_id: accountId, warehouse_id: warehouseId }),
+    })
+    if (!res.ok) {
+      // Revert on failure
+      setMappings(prev => {
+        const next = new Set(prev)
+        exists ? next.add(key) : next.delete(key)
+        return next
+      })
+      toast.error('Failed to update mapping')
+    }
+  }
 
   async function addWarehouse(e: React.FormEvent) {
     e.preventDefault()
@@ -88,6 +127,7 @@ export default function SettingsPage() {
     if (res.ok) {
       toast.success('Warehouse removed')
       loadWarehouses()
+      loadMappings()
     }
   }
 
@@ -129,6 +169,7 @@ export default function SettingsPage() {
       }
       loadAccounts()
       loadArchivedAccounts()
+      loadMappings()
     } else {
       toast.error(body.error ?? 'Failed to remove account')
     }
@@ -155,20 +196,6 @@ export default function SettingsPage() {
     }
   }
 
-  async function setAccountWarehouse(accountId: string, warehouseId: string | null) {
-    const res = await fetch('/api/marketplace-accounts', {
-      method: 'PATCH',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ id: accountId, action: 'set_default_warehouse', warehouse_id: warehouseId }),
-    })
-    if (res.ok) {
-      const updated: MarketplaceAccount = await res.json()
-      setAccounts(prev => prev.map(a => a.id === accountId ? updated : a))
-    } else {
-      toast.error('Failed to update warehouse mapping')
-    }
-  }
-
   async function forceDeleteAccount(acct: MarketplaceAccount) {
     const confirmed = window.confirm(
       `Permanently delete "${acct.account_name}"?\n\nThis will erase ALL associated orders, P&L records, SKU mappings, and dispatch history. This cannot be undone.`
@@ -184,10 +211,13 @@ export default function SettingsPage() {
     if (res.ok) {
       toast.success(`"${acct.account_name}" permanently deleted`)
       loadArchivedAccounts()
+      loadMappings()
     } else {
       toast.error(body.error ?? 'Failed to permanently delete account')
     }
   }
+
+  const showGrid = accounts.length > 0 && warehouses.length > 0
 
   return (
     <div className="space-y-6">
@@ -252,15 +282,6 @@ export default function SettingsPage() {
           {accounts.length === 0 && (
             <p className="text-sm text-muted-foreground">No accounts yet.</p>
           )}
-          {accounts.length > 0 && (
-            <div className="flex items-center justify-between text-xs text-muted-foreground pb-1 border-b">
-              <span>Account</span>
-              <span className="flex items-center gap-1 mr-[84px]">
-                Default warehouse
-                <InfoTooltip content="The warehouse this account ships from. Used to populate warehouse data in the master catalog for mapped SKUs." />
-              </span>
-            </div>
-          )}
           {accounts.map(acct => {
             const previousCount = (acct.previous_names ?? []).length
             const mostRecentPrev = previousCount > 0 ? acct.previous_names[acct.previous_names.length - 1] : null
@@ -268,24 +289,13 @@ export default function SettingsPage() {
               ? `Previously: ${mostRecentPrev.name}${previousCount > 1 ? ` (+${previousCount - 1} earlier)` : ''}`
               : ''
             return (
-              <div key={acct.id} className="flex items-center justify-between gap-3 py-1.5">
-                <div className="flex items-center gap-2 min-w-0">
-                  <Badge variant="outline" className="shrink-0">{PLATFORM_LABELS[acct.platform]}</Badge>
-                  <span className="text-sm truncate">{acct.account_name}</span>
+              <div key={acct.id} className="flex items-center justify-between py-1">
+                <div className="flex items-center gap-2">
+                  <Badge variant="outline">{PLATFORM_LABELS[acct.platform]}</Badge>
+                  <span className="text-sm">{acct.account_name}</span>
                   {tooltipContent && <InfoTooltip content={tooltipContent} />}
                 </div>
-                <div className="flex items-center gap-2 shrink-0">
-                  <select
-                    className="h-7 rounded-md border border-input bg-transparent px-2 py-0.5 text-xs shadow-sm"
-                    value={acct.default_warehouse_id ?? ''}
-                    onChange={e => setAccountWarehouse(acct.id, e.target.value || null)}
-                    title="Default warehouse for this account"
-                  >
-                    <option value="">No warehouse</option>
-                    {warehouses.map(wh => (
-                      <option key={wh.id} value={wh.id}>{wh.name}</option>
-                    ))}
-                  </select>
+                <div className="flex items-center gap-1">
                   <Button
                     variant="ghost"
                     size="sm"
@@ -366,6 +376,62 @@ export default function SettingsPage() {
             </div>
             <Button type="submit" size="sm" disabled={loading}>Add Account</Button>
           </form>
+        </CardContent>
+      </Card>
+
+      {/* Account → Warehouse mapping grid */}
+      <Card>
+        <CardHeader>
+          <CardTitle className="flex items-center gap-2">
+            Account → Warehouse
+            <InfoTooltip content="Tick which warehouse(s) each account ships from. The master catalog uses this to show warehouse data for all mapped SKUs." />
+          </CardTitle>
+        </CardHeader>
+        <CardContent>
+          {!showGrid ? (
+            <p className="text-sm text-muted-foreground">
+              Add at least one account and one warehouse above to configure mappings.
+            </p>
+          ) : (
+            <div className="overflow-x-auto">
+              <table className="w-full text-sm">
+                <thead>
+                  <tr>
+                    <th className="text-left font-medium text-muted-foreground pb-3 pr-6">Account</th>
+                    {warehouses.map(wh => (
+                      <th key={wh.id} className="text-center font-medium text-muted-foreground pb-3 px-4 whitespace-nowrap">
+                        {wh.name}
+                        {wh.location && <div className="text-xs font-normal">{wh.location}</div>}
+                      </th>
+                    ))}
+                  </tr>
+                </thead>
+                <tbody className="divide-y">
+                  {accounts.map(acct => (
+                    <tr key={acct.id}>
+                      <td className="py-3 pr-6">
+                        <div className="flex items-center gap-2">
+                          <Badge variant="outline" className="text-xs">{PLATFORM_LABELS[acct.platform]}</Badge>
+                          <span>{acct.account_name}</span>
+                        </div>
+                      </td>
+                      {warehouses.map(wh => (
+                        <td key={wh.id} className="text-center py-3 px-4">
+                          <input
+                            type="checkbox"
+                            className="h-4 w-4 rounded border-gray-300 accent-primary cursor-pointer"
+                            checked={mappings.has(mappingKey(acct.id, wh.id))}
+                            onChange={() => toggleMapping(acct.id, wh.id)}
+                            aria-label={`${acct.account_name} ships from ${wh.name}`}
+                          />
+                        </td>
+                      ))}
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
         </CardContent>
       </Card>
 

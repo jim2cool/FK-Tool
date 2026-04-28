@@ -65,41 +65,46 @@ export async function GET(request: Request) {
       }
     }
 
-    // Also pull warehouses from account mappings:
-    // sku_mappings → marketplace_accounts.default_warehouse_id → warehouses
-    const { data: acctMaps } = await supabase
+    // Also pull warehouses from account_warehouse_mappings junction table:
+    // sku_mappings → account_warehouse_mappings → warehouses
+    const { data: skuAccountRows } = await supabase
       .from('sku_mappings')
-      .select('master_sku_id, marketplace_accounts(default_warehouse_id)')
+      .select('master_sku_id, marketplace_account_id')
       .eq('tenant_id', tenantId)
       .not('master_sku_id', 'is', null)
+      .not('marketplace_account_id', 'is', null)
 
-    const whIdsFromAccounts = new Set<string>()
-    for (const m of acctMaps ?? []) {
-      const ma = m.marketplace_accounts as unknown as { default_warehouse_id: string | null }[] | null
-      const wid = (Array.isArray(ma) ? ma[0] : ma)?.default_warehouse_id
-      if (wid) whIdsFromAccounts.add(wid)
-    }
-
-    let acctWhDetails: Record<string, { id: string; name: string; location: string | null }> = {}
-    if (whIdsFromAccounts.size > 0) {
-      const { data: whs } = await supabase
-        .from('warehouses')
-        .select('id, name, location')
-        .in('id', Array.from(whIdsFromAccounts))
+    if (skuAccountRows && skuAccountRows.length > 0) {
+      const accountIds = [...new Set(skuAccountRows.map(r => r.marketplace_account_id as string))]
+      const { data: awMappings } = await supabase
+        .from('account_warehouse_mappings')
+        .select('marketplace_account_id, warehouse_id, warehouses(id, name, location)')
         .eq('tenant_id', tenantId)
-      for (const w of whs ?? []) acctWhDetails[w.id] = w
-    }
+        .in('marketplace_account_id', accountIds)
 
-    for (const m of acctMaps ?? []) {
-      const skuId = m.master_sku_id as string | null
-      const ma = m.marketplace_accounts as unknown as { default_warehouse_id: string | null }[] | null
-      const wid = (Array.isArray(ma) ? ma[0] : ma)?.default_warehouse_id
-      if (!skuId || !wid) continue
-      const wh = acctWhDetails[wid]
-      if (!wh) continue
-      if (!summaryMap[skuId]) summaryMap[skuId] = []
-      if (!summaryMap[skuId].some(s => s.warehouse_id === wh.id)) {
-        summaryMap[skuId].push({ warehouse_id: wh.id, warehouse_name: wh.name, location: wh.location })
+      // Build account → warehouses lookup
+      type WhRow = { id: string; name: string; location: string | null }
+      const accountWhMap: Record<string, WhRow[]> = {}
+      for (const aw of awMappings ?? []) {
+        const wh = aw.warehouses as unknown as WhRow | null
+        if (!wh) continue
+        const acctId = aw.marketplace_account_id as string
+        if (!accountWhMap[acctId]) accountWhMap[acctId] = []
+        if (!accountWhMap[acctId].some(w => w.id === wh.id)) {
+          accountWhMap[acctId].push(wh)
+        }
+      }
+
+      // Merge into summaryMap via sku_mappings
+      for (const row of skuAccountRows) {
+        const skuId = row.master_sku_id as string
+        const acctId = row.marketplace_account_id as string
+        for (const wh of accountWhMap[acctId] ?? []) {
+          if (!summaryMap[skuId]) summaryMap[skuId] = []
+          if (!summaryMap[skuId].some(s => s.warehouse_id === wh.id)) {
+            summaryMap[skuId].push({ warehouse_id: wh.id, warehouse_name: wh.name, location: wh.location })
+          }
+        }
       }
     }
 
