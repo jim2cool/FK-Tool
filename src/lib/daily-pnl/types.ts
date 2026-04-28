@@ -89,6 +89,7 @@ export type OrderDetailRow = {
   benchmark_price: number | null
   master_product: string | null
   cogs_per_unit: number | null
+  account_name?: string   // v2 only
 }
 
 export type ConsolidatedRow = {
@@ -105,6 +106,8 @@ export type ConsolidatedRow = {
   est_pnl_pct: number | null      // Total Est. P&L ÷ Total Bank Settlement
   return_on_cogs: number | null   // Total Est. P&L ÷ (Total COGS × Delivery Rate)
   low_confidence: boolean   // true = no P&L History match; used portfolio averages
+  proxy_source?: { master_product: string; account_name: string } | null   // v2 only
+  contributing_accounts?: string[]                                          // v2 only
 }
 
 export type ResultsResponse = {
