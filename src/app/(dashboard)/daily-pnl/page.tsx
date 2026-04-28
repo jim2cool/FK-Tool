@@ -6,6 +6,7 @@ import { Label } from '@/components/ui/label'
 import { RefreshCw, Loader2 } from 'lucide-react'
 import { toast } from 'sonner'
 import { ChannelAccountSelector } from '@/components/daily-pnl/ChannelAccountSelector'
+import { OrderDataFreshnessBanner } from '@/components/orders/OrderDataFreshnessBanner'
 import { UploadPanel } from '@/components/daily-pnl/UploadPanel'
 import { ResultsTabs } from '@/components/daily-pnl/ResultsTabs'
 import type { MarketplaceAccount, Platform, ResultsResponse } from '@/lib/daily-pnl/types'
@@ -72,6 +73,8 @@ export default function DailyPnlPage() {
           Uses 60–90 days of P&L History to estimate delivery rates and return costs.
         </p>
       </div>
+
+      <OrderDataFreshnessBanner onUploadClick={() => window.location.href = '/pnl?intent=bulk-import'} />
 
       {/* Channel + Account + Date range */}
       <div className="flex flex-wrap gap-4 items-end">

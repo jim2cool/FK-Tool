@@ -9,6 +9,7 @@ import { BenchmarkStatusCard } from '@/components/daily-pnl-v2/BenchmarkStatusCa
 import { PerAccountUploadSection } from '@/components/daily-pnl-v2/PerAccountUploadSection'
 import { ResultsAccordion } from '@/components/daily-pnl-v2/ResultsAccordion'
 import { EmptyState } from '@/components/daily-pnl-v2/EmptyState'
+import { OrderDataFreshnessBanner } from '@/components/orders/OrderDataFreshnessBanner'
 import type { MarketplaceAccount, Platform } from '@/types'
 import type { BenchmarkStatusResponse, ResultsResponseV2 } from '@/lib/daily-pnl-v2/types'
 
@@ -138,6 +139,8 @@ export default function DailyPnlV2Page() {
 
   return (
     <div className="p-6 space-y-4 max-w-[1400px]">
+      <OrderDataFreshnessBanner onUploadClick={handleBulkImporterOpen} />
+
       <ConfigurationCard
         accounts={accounts}
         channel={channel}

@@ -14,6 +14,7 @@ import { PnlInsightsTab } from '@/components/pnl/PnlInsightsTab'
 import { ActionDashboard } from '@/components/pnl/ActionDashboard'
 import { PnlImportDialog } from '@/components/pnl/PnlImportDialog'
 import { BulkImportDialog } from '@/components/pnl/BulkImportDialog'
+import { OrderDataFreshnessBanner } from '@/components/orders/OrderDataFreshnessBanner'
 import { AnomalyRulesPanel } from '@/components/pnl/AnomalyRulesPanel'
 import { OverheadsDialog } from '@/components/pnl/OverheadsDialog'
 import type { PnlBreakdown, PnlSummary } from '@/lib/pnl/calculate'
@@ -254,6 +255,8 @@ export default function PnlPage() {
           </Button>
         </div>
       </div>
+
+      <OrderDataFreshnessBanner onUploadClick={() => setShowBulkImport(true)} />
 
       {/* Filters */}
       <div className="flex gap-4 items-center">
