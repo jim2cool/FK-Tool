@@ -26,7 +26,7 @@ function downloadCsv(rows: Record<string, unknown>[], filename: string) {
   a.click()
 }
 
-export function ResultsTabs({ data, from, to }: { data: ResultsResponse; from: string; to: string }) {
+export function ResultsTabs({ data, from, to, showAccountColumn }: { data: ResultsResponse; from: string; to: string; showAccountColumn?: boolean }) {
   const [showFormula, setShowFormula] = useState(false)
 
   // Revenue-weighted aggregates (matches the spec's Consolidated Report total row)
@@ -142,6 +142,7 @@ export function ResultsTabs({ data, from, to }: { data: ResultsResponse; from: s
               <TableHeader>
                 <TableRow>
                   <TableHead>Master Product</TableHead>
+                  {showAccountColumn && <TableHead>Accounts</TableHead>}
                   <TableHead className="text-right">Qty</TableHead>
                   <TableHead className="text-right">
                     Avg Settlement <InfoTooltip content="Quantity-weighted Bank Settlement per unit. Pulled from your Listing upload — see Order Detail tab for the per-order values." />
@@ -179,6 +180,7 @@ export function ResultsTabs({ data, from, to }: { data: ResultsResponse; from: s
                       {row.master_product}
                       {row.low_confidence && <Badge variant="outline" className="ml-2 text-xs text-amber-600 border-amber-300">low confidence</Badge>}
                     </TableCell>
+                    {showAccountColumn && <TableCell className="text-xs text-muted-foreground">{row.contributing_accounts?.join(', ') ?? '—'}</TableCell>}
                     <TableCell className="text-right">{row.quantity}</TableCell>
                     <TableCell className="text-right">{inr(row.avg_bank_settlement)}</TableCell>
                     <TableCell className="text-right">
@@ -195,7 +197,7 @@ export function ResultsTabs({ data, from, to }: { data: ResultsResponse; from: s
                   </TableRow>
                 ))}
                 {data.consolidated.length === 0 && (
-                  <TableRow><TableCell colSpan={11} className="text-center text-muted-foreground py-8">No dispatched orders found in this date range</TableCell></TableRow>
+                  <TableRow><TableCell colSpan={showAccountColumn ? 12 : 11} className="text-center text-muted-foreground py-8">No dispatched orders found in this date range</TableCell></TableRow>
                 )}
               </TableBody>
             </Table>
@@ -216,6 +218,7 @@ export function ResultsTabs({ data, from, to }: { data: ResultsResponse; from: s
                   <TableHead>Order Item ID</TableHead>
                   <TableHead>SKU</TableHead>
                   <TableHead>Master Product</TableHead>
+                  {showAccountColumn && <TableHead>Account</TableHead>}
                   <TableHead>Dispatched</TableHead>
                   <TableHead>Status</TableHead>
                   <TableHead className="text-right">Qty</TableHead>
@@ -229,6 +232,7 @@ export function ResultsTabs({ data, from, to }: { data: ResultsResponse; from: s
                     <TableCell className="font-mono text-xs">{row.order_item_id}</TableCell>
                     <TableCell className="text-xs max-w-[160px] truncate">{row.sku}</TableCell>
                     <TableCell>{row.master_product ?? <span className="text-amber-600 text-xs">unmapped</span>}</TableCell>
+                    {showAccountColumn && <TableCell className="text-xs">{row.account_name ?? '—'}</TableCell>}
                     <TableCell className="text-xs">{row.dispatched_date}</TableCell>
                     <TableCell><Badge variant="outline" className="text-xs">{row.order_item_status}</Badge></TableCell>
                     <TableCell className="text-right">{row.quantity}</TableCell>
