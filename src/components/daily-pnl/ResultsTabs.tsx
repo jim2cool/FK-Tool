@@ -55,30 +55,51 @@ export function ResultsTabs({ data, from, to, showAccountColumn }: { data: Resul
         </div>
       )}
 
-      {/* Headline KPIs — Revenue → Net Revenue → Profit */}
-      <div className="space-y-3">
+      {/* Headline KPIs */}
+      {totalGmv > 0 ? (
+        /* Revenue → Net Revenue → Profit layout (v2: API returns GMV + Est. Settlement) */
+        <div className="space-y-3">
+          <div className="grid grid-cols-3 gap-4">
+            <div className="rounded-lg border p-4">
+              <p className="text-sm text-muted-foreground">
+                GMV <InfoTooltip content="Qty × Avg Selling Price. Gross top-line revenue at the price customers paid, before Flipkart takes any fees." />
+              </p>
+              <p className="text-2xl font-bold">{inr(totalGmv)}</p>
+              <p className="text-xs text-muted-foreground">Gross revenue dispatched</p>
+            </div>
+            <div className="rounded-lg border p-4">
+              <p className="text-sm text-muted-foreground">
+                Est. Total Settlement <InfoTooltip content="Qty × Delivery Rate × Avg Bank Settlement. Projected cash Flipkart will actually pay after accounting for returns and cancellations." />
+              </p>
+              <p className="text-2xl font-bold">{inr(totalEstSettlement)}</p>
+              <p className="text-xs text-muted-foreground">After estimated returns</p>
+            </div>
+            <div className="rounded-lg border p-4">
+              <p className="text-sm text-muted-foreground">Total Est. P&L</p>
+              <p className={`text-2xl font-bold ${totalPnl >= 0 ? 'text-green-700' : 'text-red-600'}`}>{inr(totalPnl)}</p>
+              <p className="text-xs text-muted-foreground">{from} → {to}</p>
+            </div>
+          </div>
+          <div className="grid grid-cols-2 gap-4">
+            <div className="rounded-lg border p-4">
+              <p className="text-sm text-muted-foreground">Units Dispatched</p>
+              <p className="text-2xl font-bold">{totalUnits.toLocaleString('en-IN')}</p>
+            </div>
+            <div className="rounded-lg border p-4">
+              <p className="text-sm text-muted-foreground">Avg Margin %</p>
+              <p className={`text-2xl font-bold ${avgMarginPct >= 0 ? 'text-green-700' : 'text-red-600'}`}>{avgMarginPct.toFixed(1)}%</p>
+              <p className="text-xs text-muted-foreground">of bank settlement</p>
+            </div>
+          </div>
+        </div>
+      ) : (
+        /* Original 3-card layout (v1: API does not return GMV/settlement) */
         <div className="grid grid-cols-3 gap-4">
-          <div className="rounded-lg border p-4">
-            <p className="text-sm text-muted-foreground">
-              GMV <InfoTooltip content="Qty × Avg Selling Price. Gross top-line revenue at the price customers paid, before Flipkart takes any fees." />
-            </p>
-            <p className="text-2xl font-bold">{inr(totalGmv)}</p>
-            <p className="text-xs text-muted-foreground">Gross revenue dispatched</p>
-          </div>
-          <div className="rounded-lg border p-4">
-            <p className="text-sm text-muted-foreground">
-              Est. Total Settlement <InfoTooltip content="Qty × Delivery Rate × Avg Bank Settlement. Projected cash Flipkart will actually pay after accounting for returns and cancellations." />
-            </p>
-            <p className="text-2xl font-bold">{inr(totalEstSettlement)}</p>
-            <p className="text-xs text-muted-foreground">After estimated returns</p>
-          </div>
           <div className="rounded-lg border p-4">
             <p className="text-sm text-muted-foreground">Total Est. P&L</p>
             <p className={`text-2xl font-bold ${totalPnl >= 0 ? 'text-green-700' : 'text-red-600'}`}>{inr(totalPnl)}</p>
             <p className="text-xs text-muted-foreground">{from} → {to}</p>
           </div>
-        </div>
-        <div className="grid grid-cols-2 gap-4">
           <div className="rounded-lg border p-4">
             <p className="text-sm text-muted-foreground">Units Dispatched</p>
             <p className="text-2xl font-bold">{totalUnits.toLocaleString('en-IN')}</p>
@@ -89,7 +110,7 @@ export function ResultsTabs({ data, from, to, showAccountColumn }: { data: Resul
             <p className="text-xs text-muted-foreground">of bank settlement</p>
           </div>
         </div>
-      </div>
+      )}
 
       {/* How is P&L calculated? — collapsible formula explainer */}
       <div className="rounded-lg border bg-muted/30">
