@@ -30,12 +30,14 @@ export function ResultsTabs({ data, from, to, showAccountColumn }: { data: Resul
   const [showFormula, setShowFormula] = useState(false)
 
   // Revenue-weighted aggregates (matches the spec's Consolidated Report total row)
-  const totalPnl       = data.consolidated.reduce((s, r) => s + (r.total_est_pnl ?? 0), 0)
-  const totalUnits     = data.consolidated.reduce((s, r) => s + r.quantity, 0)
-  const totalBankProj  = data.consolidated.reduce(
+  const totalPnl          = data.consolidated.reduce((s, r) => s + (r.total_est_pnl ?? 0), 0)
+  const totalUnits        = data.consolidated.reduce((s, r) => s + r.quantity, 0)
+  const totalBankProj     = data.consolidated.reduce(
     (s, r) => s + ((r.avg_bank_settlement ?? 0) * r.quantity), 0)
+  const totalGmv          = data.consolidated.reduce((s, r) => s + (r.gmv ?? 0), 0)
+  const totalEstSettlement = data.consolidated.reduce((s, r) => s + (r.est_total_settlement ?? 0), 0)
   // Avg Margin % = Total P&L ÷ Total Projected Bank Settlement (revenue-weighted, matches spec)
-  const avgMarginPct   = totalBankProj > 0 ? (totalPnl / totalBankProj) * 100 : 0
+  const avgMarginPct      = totalBankProj > 0 ? (totalPnl / totalBankProj) * 100 : 0
 
   return (
     <div className="space-y-4">
@@ -53,21 +55,39 @@ export function ResultsTabs({ data, from, to, showAccountColumn }: { data: Resul
         </div>
       )}
 
-      {/* Headline KPIs */}
-      <div className="grid grid-cols-3 gap-4">
-        <div className="rounded-lg border p-4">
-          <p className="text-sm text-muted-foreground">Total Est. P&L</p>
-          <p className={`text-2xl font-bold ${totalPnl >= 0 ? 'text-green-700' : 'text-red-600'}`}>{inr(totalPnl)}</p>
-          <p className="text-xs text-muted-foreground">{from} → {to}</p>
+      {/* Headline KPIs — Revenue → Net Revenue → Profit */}
+      <div className="space-y-3">
+        <div className="grid grid-cols-3 gap-4">
+          <div className="rounded-lg border p-4">
+            <p className="text-sm text-muted-foreground">
+              GMV <InfoTooltip content="Qty × Avg Selling Price. Gross top-line revenue at the price customers paid, before Flipkart takes any fees." />
+            </p>
+            <p className="text-2xl font-bold">{inr(totalGmv)}</p>
+            <p className="text-xs text-muted-foreground">Gross revenue dispatched</p>
+          </div>
+          <div className="rounded-lg border p-4">
+            <p className="text-sm text-muted-foreground">
+              Est. Total Settlement <InfoTooltip content="Qty × Delivery Rate × Avg Bank Settlement. Projected cash Flipkart will actually pay after accounting for returns and cancellations." />
+            </p>
+            <p className="text-2xl font-bold">{inr(totalEstSettlement)}</p>
+            <p className="text-xs text-muted-foreground">After estimated returns</p>
+          </div>
+          <div className="rounded-lg border p-4">
+            <p className="text-sm text-muted-foreground">Total Est. P&L</p>
+            <p className={`text-2xl font-bold ${totalPnl >= 0 ? 'text-green-700' : 'text-red-600'}`}>{inr(totalPnl)}</p>
+            <p className="text-xs text-muted-foreground">{from} → {to}</p>
+          </div>
         </div>
-        <div className="rounded-lg border p-4">
-          <p className="text-sm text-muted-foreground">Units Dispatched</p>
-          <p className="text-2xl font-bold">{totalUnits.toLocaleString('en-IN')}</p>
-        </div>
-        <div className="rounded-lg border p-4">
-          <p className="text-sm text-muted-foreground">Avg Margin %</p>
-          <p className={`text-2xl font-bold ${avgMarginPct >= 0 ? 'text-green-700' : 'text-red-600'}`}>{avgMarginPct.toFixed(1)}%</p>
-          <p className="text-xs text-muted-foreground">of bank settlement</p>
+        <div className="grid grid-cols-2 gap-4">
+          <div className="rounded-lg border p-4">
+            <p className="text-sm text-muted-foreground">Units Dispatched</p>
+            <p className="text-2xl font-bold">{totalUnits.toLocaleString('en-IN')}</p>
+          </div>
+          <div className="rounded-lg border p-4">
+            <p className="text-sm text-muted-foreground">Avg Margin %</p>
+            <p className={`text-2xl font-bold ${avgMarginPct >= 0 ? 'text-green-700' : 'text-red-600'}`}>{avgMarginPct.toFixed(1)}%</p>
+            <p className="text-xs text-muted-foreground">of bank settlement</p>
+          </div>
         </div>
       </div>
 
@@ -145,6 +165,12 @@ export function ResultsTabs({ data, from, to, showAccountColumn }: { data: Resul
                   {showAccountColumn && <TableHead>Accounts</TableHead>}
                   <TableHead className="text-right">Qty</TableHead>
                   <TableHead className="text-right">
+                    GMV <InfoTooltip content="Qty × Avg Selling Price. Gross top-line revenue before Flipkart takes fees." />
+                  </TableHead>
+                  <TableHead className="text-right">
+                    Est. Settlement <InfoTooltip content="Qty × Delivery Rate × Avg Bank Settlement. Projected cash Flipkart will pay after estimated returns." />
+                  </TableHead>
+                  <TableHead className="text-right">
                     Avg Settlement <InfoTooltip content="Quantity-weighted Bank Settlement per unit. Pulled from your Listing upload — see Order Detail tab for the per-order values." />
                   </TableHead>
                   <TableHead className="text-right">
@@ -182,6 +208,8 @@ export function ResultsTabs({ data, from, to, showAccountColumn }: { data: Resul
                     </TableCell>
                     {showAccountColumn && <TableCell className="text-xs text-muted-foreground">{row.contributing_accounts?.join(', ') ?? '—'}</TableCell>}
                     <TableCell className="text-right">{row.quantity}</TableCell>
+                    <TableCell className="text-right">{inr(row.gmv ?? null)}</TableCell>
+                    <TableCell className="text-right">{inr(row.est_total_settlement ?? null)}</TableCell>
                     <TableCell className="text-right">{inr(row.avg_bank_settlement)}</TableCell>
                     <TableCell className="text-right">
                       {pct(row.delivery_rate)}
@@ -197,7 +225,7 @@ export function ResultsTabs({ data, from, to, showAccountColumn }: { data: Resul
                   </TableRow>
                 ))}
                 {data.consolidated.length === 0 && (
-                  <TableRow><TableCell colSpan={showAccountColumn ? 12 : 11} className="text-center text-muted-foreground py-8">No dispatched orders found in this date range</TableCell></TableRow>
+                  <TableRow><TableCell colSpan={showAccountColumn ? 14 : 13} className="text-center text-muted-foreground py-8">No dispatched orders found in this date range</TableCell></TableRow>
                 )}
               </TableBody>
             </Table>

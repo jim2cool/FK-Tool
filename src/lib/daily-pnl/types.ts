@@ -106,6 +106,8 @@ export type ConsolidatedRow = {
   est_pnl_pct: number | null      // Total Est. P&L ÷ Total Bank Settlement
   return_on_cogs: number | null   // Total Est. P&L ÷ (Total COGS × Delivery Rate)
   low_confidence: boolean   // true = no P&L History match; used portfolio averages
+  gmv?: number | null                  // quantity × avg_selling_price
+  est_total_settlement?: number | null // quantity × delivery_rate × avg_bank_settlement
   proxy_source?: { master_product: string; account_name: string } | null   // v2 only
   contributing_accounts?: string[]                                          // v2 only
 }
